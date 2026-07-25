@@ -40,7 +40,7 @@ export interface StandingRow {
   total_points: number;
 }
 
-// Clean in-memory storage (0 fake data)
+// Clean in-memory storage (fallback if Turso is empty or unreachable)
 let memoryPlayers: PlayerRow[] = [];
 let memorySeasons: SeasonRow[] = [
   { id: 'season-1', name: 'Season 1 (2026)', start_date: '2026-07-01', end_date: '2026-09-30', is_active: 1 }
@@ -131,7 +131,7 @@ export async function getAllPlayers(): Promise<PlayerRow[]> {
     const client = await getDbClient();
     if (client) {
       const rs = await client.execute('SELECT * FROM players ORDER BY name ASC');
-      if (rs.rows) {
+      if (rs.rows && rs.rows.length > 0) {
         return rs.rows as unknown as PlayerRow[];
       }
     }
@@ -145,31 +145,18 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
   const client = await getDbClient();
   const now = new Date().toISOString().split('T')[0];
 
+  // 1. Always update memory store first so roster is instantly available
   for (const p of newPlayers) {
     const cleanHandle = p.chesscom_username.trim();
     if (!cleanHandle) continue;
 
-    if (client) {
-      try {
-        await client.execute({
-          sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
-                VALUES (?, ?, ?, ?, 1, 0, ?)
-                ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
-          args: [Date.now().toString() + Math.random().toString(36).substring(2, 5), p.name, p.email, cleanHandle, now]
-        });
-      } catch (err) {
-        console.warn(`Could not insert player ${cleanHandle} to Turso DB:`, err);
-      }
-    }
-
-    // Keep memory store updated as fallback
     const existing = memoryPlayers.find(mp => mp.chesscom_username.toLowerCase() === cleanHandle.toLowerCase());
     if (existing) {
       existing.name = p.name;
       existing.email = p.email;
     } else {
       memoryPlayers.push({
-        id: Date.now().toString(),
+        id: 'usr-' + Math.random().toString(36).substring(2, 10),
         name: p.name,
         email: p.email,
         chesscom_username: cleanHandle,
@@ -177,6 +164,22 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
         is_banned: 0,
         created_at: now
       });
+    }
+  }
+
+  // 2. Batch insert/upsert into Turso DB in a single HTTP request
+  if (client && memoryPlayers.length > 0) {
+    try {
+      const statements = memoryPlayers.map(p => ({
+        sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
+              VALUES (?, ?, ?, ?, 1, 0, ?)
+              ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
+        args: [p.id, p.name, p.email, p.chesscom_username, now]
+      }));
+
+      await client.batch(statements, 'write');
+    } catch (err) {
+      console.warn('Batch inserting players to Turso DB failed:', err);
     }
   }
 }
@@ -188,37 +191,7 @@ export async function saveTournamentResults(
   const client = await getDbClient();
   const tourneyId = 'tourney-' + Date.now();
 
-  if (client) {
-    try {
-      await client.execute({
-        sql: `INSERT INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
-      });
-
-      for (const st of standings) {
-        await client.execute({
-          sql: `INSERT INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [
-            'st-' + Math.random().toString(36).substring(2, 9),
-            tourneyId,
-            st.player_username,
-            st.rank,
-            st.swiss_points,
-            st.rounds_played,
-            st.rank_points,
-            st.participation_points,
-            st.total_points
-          ]
-        });
-      }
-    } catch (err) {
-      console.warn('Could not save tournament results to Turso DB:', err);
-    }
-  }
-
-  // Update memory store as fallback
+  // Always update memory store first
   memoryTournaments.push({ ...tournament, id: tourneyId });
   standings.forEach(st => {
     memoryStandings.push({
@@ -227,6 +200,36 @@ export async function saveTournamentResults(
       tournament_id: tourneyId
     });
   });
+
+  if (client) {
+    try {
+      const tourneyStmt = {
+        sql: `INSERT INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
+      };
+
+      const standingStmts = standings.map(st => ({
+        sql: `INSERT INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          'st-' + Math.random().toString(36).substring(2, 9),
+          tourneyId,
+          st.player_username,
+          st.rank,
+          st.swiss_points,
+          st.rounds_played,
+          st.rank_points,
+          st.participation_points,
+          st.total_points
+        ]
+      }));
+
+      await client.batch([tourneyStmt, ...standingStmts], 'write');
+    } catch (err) {
+      console.warn('Could not save tournament results to Turso DB:', err);
+    }
+  }
 }
 
 export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday' = 'all') {
@@ -242,10 +245,10 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
     if (client) {
       const tRes = await client.execute('SELECT * FROM tournaments');
       const sRes = await client.execute('SELECT * FROM standings');
-      if (tRes.rows) {
+      if (tRes.rows && tRes.rows.length > 0) {
         tournaments = tRes.rows as unknown as TournamentRow[];
       }
-      if (sRes.rows) {
+      if (sRes.rows && sRes.rows.length > 0) {
         standings = sRes.rows as unknown as StandingRow[];
       }
     }
