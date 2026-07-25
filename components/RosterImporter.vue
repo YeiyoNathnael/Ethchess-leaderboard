@@ -94,22 +94,15 @@ const processRawData = (rows) => {
     keys.forEach(k => {
       const lowerK = k.toLowerCase().replace(/\s+/g, ' ');
 
-      // Google Form column matching for EthChess Form:
-      // "Full Name( Abebe Kebede)" or "Full Name"
       if (lowerK.includes('full name') || lowerK.includes('name')) {
         name = row[k];
-      } 
-      // "Telegram Username (@)" or "Phone number" or "Email"
-      else if (lowerK.includes('telegram') || lowerK.includes('phone') || lowerK.includes('email')) {
+      } else if (lowerK.includes('telegram') || lowerK.includes('phone') || lowerK.includes('email')) {
         if (!email) email = row[k];
-      } 
-      // "Chess.com Username..."
-      else if (lowerK.includes('chess.com') || lowerK.includes('chess') || lowerK.includes('handle')) {
+      } else if (lowerK.includes('chess.com') || lowerK.includes('chess') || lowerK.includes('handle')) {
         handle = row[k];
       }
     });
 
-    // Fallback positional mapping if keys are generic
     if (!handle && keys.length >= 2) {
       name = row[keys[1]] || row[keys[0]] || '';
       handle = row[keys[5]] || row[keys[2]] || row[keys[1]] || '';
@@ -118,7 +111,6 @@ const processRawData = (rows) => {
     const cleanHandle = String(handle || '').trim().replace(/^@/, '');
     const invalidValues = ['n/a', 'na', 'none', '-', 'no', 'null', 'undefined', ''];
 
-    // Only add if handle is a valid non-empty string and not N/A
     if (cleanHandle && !invalidValues.includes(cleanHandle.toLowerCase())) {
       players.push({
         name: String(name || 'Chess Player').trim(),
@@ -130,7 +122,7 @@ const processRawData = (rows) => {
 
   parsedPlayers.value = players;
   if (players.length === 0) {
-    statusMessage.value = 'Could not find valid Chess.com handles in file. Ensure spreadsheet includes the Google Form "Chess.com Username" column and non-N/A handles.';
+    statusMessage.value = 'Could not find valid Chess.com handles in file. Ensure spreadsheet includes the Google Form "Chess.com Username" column.';
     statusType.value = 'error';
   } else {
     statusMessage.value = `Successfully parsed ${players.length} valid registered players from spreadsheet. Click "Confirm & Save Roster" below.`;
@@ -189,7 +181,10 @@ const submitRoster = async () => {
       body: { players: parsedPlayers.value }
     });
 
-    statusMessage.value = `Success! ${res.message}. Total registered players: ${res.totalRegistered}`;
+    const msg = res?.message || `Successfully imported ${parsedPlayers.value.length} players`;
+    const total = res?.totalRegistered ?? parsedPlayers.value.length;
+
+    statusMessage.value = `${msg}. Total registered players: ${total}`;
     statusType.value = 'success';
     parsedPlayers.value = [];
     emit('roster-updated');

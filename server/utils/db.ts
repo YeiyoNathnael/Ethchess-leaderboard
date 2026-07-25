@@ -40,7 +40,7 @@ export interface StandingRow {
   total_points: number;
 }
 
-// In-Memory Storage fallback if Turso URL is not set
+// In-Memory Storage fallback if Turso is not configured or throws table errors
 let memoryPlayers: PlayerRow[] = [
   { id: '1', name: 'Abebe Bikila', email: 'abebe@example.com', chesscom_username: 'GrandmasterAbebe', is_verified: 1, is_banned: 0, created_at: '2026-07-01' },
   { id: '2', name: 'Bethlehem Tadese', email: 'beth@example.com', chesscom_username: 'TacticalBeth', is_verified: 1, is_banned: 0, created_at: '2026-07-01' },
@@ -90,22 +90,95 @@ let memoryStandings: StandingRow[] = [
   { id: 'st-17', tournament_id: 'fri-r2', player_username: 'TacticalBeth', rank: 2, swiss_points: 7.5, rounds_played: 9, rank_points: 20, participation_points: 5, total_points: 25 }
 ];
 
+let isDbInitialized = false;
+
 export async function getDbClient() {
   const config = useRuntimeConfig();
   if (config.tursoUrl && config.tursoAuthToken) {
-    return createClient({
-      url: config.tursoUrl,
-      authToken: config.tursoAuthToken,
-    });
+    try {
+      const client = createClient({
+        url: config.tursoUrl,
+        authToken: config.tursoAuthToken,
+      });
+
+      if (!isDbInitialized) {
+        await initDbTables(client);
+        isDbInitialized = true;
+      }
+      return client;
+    } catch (err) {
+      console.warn('Failed to connect to Turso DB, falling back to memory store:', err);
+      return null;
+    }
   }
   return null;
 }
 
+async function initDbTables(client: ReturnType<typeof createClient>) {
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS players (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT,
+        chesscom_username TEXT UNIQUE NOT NULL,
+        is_verified INTEGER DEFAULT 1,
+        is_banned INTEGER DEFAULT 0,
+        created_at TEXT
+      )
+    `);
+
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS seasons (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        is_active INTEGER DEFAULT 1
+      )
+    `);
+
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS tournaments (
+        id TEXT PRIMARY KEY,
+        url_slug TEXT NOT NULL,
+        name TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        rounds_count INTEGER DEFAULT 9,
+        sync_date TEXT,
+        season_id TEXT
+      )
+    `);
+
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS standings (
+        id TEXT PRIMARY KEY,
+        tournament_id TEXT NOT NULL,
+        player_username TEXT NOT NULL,
+        rank INTEGER NOT NULL,
+        swiss_points REAL NOT NULL,
+        rounds_played INTEGER NOT NULL,
+        rank_points INTEGER NOT NULL,
+        participation_points INTEGER NOT NULL,
+        total_points INTEGER NOT NULL
+      )
+    `);
+  } catch (err) {
+    console.warn('Could not auto-create Turso tables:', err);
+  }
+}
+
 export async function getAllPlayers(): Promise<PlayerRow[]> {
-  const client = await getDbClient();
-  if (client) {
-    const rs = await client.execute('SELECT * FROM players ORDER BY name ASC');
-    return rs.rows as unknown as PlayerRow[];
+  try {
+    const client = await getDbClient();
+    if (client) {
+      const rs = await client.execute('SELECT * FROM players ORDER BY name ASC');
+      if (rs.rows && rs.rows.length > 0) {
+        return rs.rows as unknown as PlayerRow[];
+      }
+    }
+  } catch (err) {
+    console.warn('Failed querying players from Turso:', err);
   }
   return memoryPlayers;
 }
@@ -118,29 +191,36 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
     const cleanHandle = p.chesscom_username.trim();
     if (!cleanHandle) continue;
 
+    let successInDb = false;
     if (client) {
-      await client.execute({
-        sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
-              VALUES (?, ?, ?, ?, 1, 0, ?)
-              ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
-        args: [Date.now().toString() + Math.random().toString(36).substring(2, 5), p.name, p.email, cleanHandle, now]
-      });
-    } else {
-      const existing = memoryPlayers.find(mp => mp.chesscom_username.toLowerCase() === cleanHandle.toLowerCase());
-      if (existing) {
-        existing.name = p.name;
-        existing.email = p.email;
-      } else {
-        memoryPlayers.push({
-          id: Date.now().toString(),
-          name: p.name,
-          email: p.email,
-          chesscom_username: cleanHandle,
-          is_verified: 1,
-          is_banned: 0,
-          created_at: now
+      try {
+        await client.execute({
+          sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
+                VALUES (?, ?, ?, ?, 1, 0, ?)
+                ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
+          args: [Date.now().toString() + Math.random().toString(36).substring(2, 5), p.name, p.email, cleanHandle, now]
         });
+        successInDb = true;
+      } catch (err) {
+        console.warn(`Could not insert player ${cleanHandle} to Turso DB:`, err);
       }
+    }
+
+    // Always keep memory store updated as fallback
+    const existing = memoryPlayers.find(mp => mp.chesscom_username.toLowerCase() === cleanHandle.toLowerCase());
+    if (existing) {
+      existing.name = p.name;
+      existing.email = p.email;
+    } else {
+      memoryPlayers.push({
+        id: Date.now().toString(),
+        name: p.name,
+        email: p.email,
+        chesscom_username: cleanHandle,
+        is_verified: 1,
+        is_banned: 0,
+        created_at: now
+      });
     }
   }
 }
@@ -153,39 +233,44 @@ export async function saveTournamentResults(
   const tourneyId = 'tourney-' + Date.now();
 
   if (client) {
-    await client.execute({
-      sql: `INSERT INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
-    });
-
-    for (const st of standings) {
+    try {
       await client.execute({
-        sql: `INSERT INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          'st-' + Math.random().toString(36).substring(2, 9),
-          tourneyId,
-          st.player_username,
-          st.rank,
-          st.swiss_points,
-          st.rounds_played,
-          st.rank_points,
-          st.participation_points,
-          st.total_points
-        ]
+        sql: `INSERT INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
       });
+
+      for (const st of standings) {
+        await client.execute({
+          sql: `INSERT INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            'st-' + Math.random().toString(36).substring(2, 9),
+            tourneyId,
+            st.player_username,
+            st.rank,
+            st.swiss_points,
+            st.rounds_played,
+            st.rank_points,
+            st.participation_points,
+            st.total_points
+          ]
+        });
+      }
+    } catch (err) {
+      console.warn('Could not save tournament results to Turso DB:', err);
     }
-  } else {
-    memoryTournaments.push({ ...tournament, id: tourneyId });
-    standings.forEach(st => {
-      memoryStandings.push({
-        ...st,
-        id: 'st-' + Math.random().toString(36).substring(2, 9),
-        tournament_id: tourneyId
-      });
-    });
   }
+
+  // Update memory store as fallback
+  memoryTournaments.push({ ...tournament, id: tourneyId });
+  standings.forEach(st => {
+    memoryStandings.push({
+      ...st,
+      id: 'st-' + Math.random().toString(36).substring(2, 9),
+      tournament_id: tourneyId
+    });
+  });
 }
 
 export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday' = 'all') {
@@ -193,16 +278,23 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
   const registeredMap = new Map<string, PlayerRow>();
   players.forEach(p => registeredMap.set(p.chesscom_username.toLowerCase(), p));
 
-  const client = await getDbClient();
   let tournaments = memoryTournaments;
   let standings = memoryStandings;
 
-  if (client) {
-    const tRes = await client.execute('SELECT * FROM tournaments');
-    tournaments = tRes.rows as unknown as TournamentRow[];
-
-    const sRes = await client.execute('SELECT * FROM standings');
-    standings = sRes.rows as unknown as StandingRow[];
+  try {
+    const client = await getDbClient();
+    if (client) {
+      const tRes = await client.execute('SELECT * FROM tournaments');
+      const sRes = await client.execute('SELECT * FROM standings');
+      if (tRes.rows && tRes.rows.length > 0) {
+        tournaments = tRes.rows as unknown as TournamentRow[];
+      }
+      if (sRes.rows && sRes.rows.length > 0) {
+        standings = sRes.rows as unknown as StandingRow[];
+      }
+    }
+  } catch (err) {
+    console.warn('Failed querying leaderboard from Turso DB:', err);
   }
 
   // Filter tournaments by eventType if requested
@@ -288,12 +380,7 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
   // Convert map to sorted array
   const leaderboardList = Array.from(playerStats.values());
 
-  // Tie-breaker sorting:
-  // 1. Total Points
-  // 2. First Place finishes
-  // 3. Second Place finishes
-  // 4. Events Played
-  // 5. Total Swiss Points
+  // Tie-breaker sorting
   leaderboardList.sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
     if (b.firstCount !== a.firstCount) return b.firstCount - a.firstCount;
