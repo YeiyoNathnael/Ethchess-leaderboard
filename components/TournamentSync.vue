@@ -3,11 +3,30 @@
     <div class="sync-header">
       <div>
         <h3 class="sync-title">CHESS.COM TOURNAMENT LINK SYNC ENGINE</h3>
-        <p class="sync-sub">Input a Chess.com tournament URL to automatically fetch standings and compute EthChess F1 points</p>
+        <p class="sync-sub">Sync public daily tournaments or enter live club event standings to compute EthChess F1 points</p>
+      </div>
+      
+      <!-- Mode Toggle -->
+      <div class="mode-toggle">
+        <button 
+          type="button"
+          :class="['mode-btn', { active: mode === 'url' }]"
+          @click="mode = 'url'"
+        >
+          PUBLIC URL / SLUG
+        </button>
+        <button 
+          type="button"
+          :class="['mode-btn', { active: mode === 'manual' }]"
+          @click="mode = 'manual'"
+        >
+          LIVE CLUB EVENT INPUT
+        </button>
       </div>
     </div>
 
-    <form @submit.prevent="syncTournament" class="sync-form">
+    <!-- Mode 1: Public URL Sync -->
+    <form v-if="mode === 'url'" @submit.prevent="syncTournament" class="sync-form">
       <div class="form-grid">
         <div class="form-group url-group">
           <label class="form-label">CHESS.COM TOURNAMENT LINK OR SLUG</label>
@@ -43,9 +62,62 @@
         <button type="submit" class="btn-primary" :disabled="isLoading">
           {{ isLoading ? 'FETCHING & SYNCING...' : 'FETCH & SYNC TOURNAMENT' }}
         </button>
+      </div>
+    </form>
 
-        <button type="button" class="btn-secondary" @click="loadSampleTournament" :disabled="isLoading">
-          LOAD DEMO SAMPLE DATA
+    <!-- Mode 2: Live Club Event Quick Standings Entry (for /play/tournament/ live events) -->
+    <form v-else @submit.prevent="submitManualStandings" class="sync-form">
+      <div class="info-banner">
+        <strong>NOTE:</strong> Live club tournaments hosted under <code>/play/tournament/</code> are restricted live play rooms and not exposed on Chess.com's public REST API. Use this quick input to post live event ranks.
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group url-group">
+          <label class="form-label">LIVE TOURNAMENT NAME / TITLE</label>
+          <input 
+            v-model="manualName" 
+            type="text" 
+            placeholder="e.g. EthChess Live Tuesday #1 (6629639)"
+            class="form-input"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">EVENT CATEGORY</label>
+          <select v-model="eventType" class="form-select">
+            <option value="tuesday">EthChess Tuesday</option>
+            <option value="friday">Freestyle Friday</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">SWISS ROUNDS COMPLETED</label>
+          <input 
+            v-model.number="manualRounds" 
+            type="number" 
+            min="1"
+            max="15"
+            class="form-input"
+            required
+          />
+        </div>
+      </div>
+
+      <div class="form-group full-width">
+        <label class="form-label">PASTE FINISH ORDER (HANDLES IN RANK ORDER, ONE PER LINE OR COMMA SEPARATED)</label>
+        <textarea 
+          v-model="manualHandlesText"
+          rows="5"
+          placeholder="e.g.&#10;GrandmasterAbebe&#10;TacticalBeth&#10;DawitKnight&#10;ElenaQueen"
+          class="form-textarea"
+          required
+        ></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn-primary" :disabled="isLoading">
+          {{ isLoading ? 'CALCULATING & SAVING...' : 'CALCULATE & SAVE LIVE EVENT' }}
         </button>
       </div>
     </form>
@@ -89,9 +161,14 @@ import { ref } from 'vue';
 
 const emit = defineEmits(['tournament-synced']);
 
+const mode = ref('url');
 const tournamentUrl = ref('');
 const eventType = ref('tuesday');
 const customName = ref('');
+const manualName = ref('');
+const manualRounds = ref(9);
+const manualHandlesText = ref('');
+
 const isLoading = ref(false);
 const statusMessage = ref('');
 const statusType = ref('info');
@@ -127,12 +204,47 @@ const syncTournament = async () => {
   }
 };
 
-const loadSampleTournament = () => {
-  tournamentUrl.value = 'https://www.chess.com/tournament/tuesday';
-  customName.value = 'EthChess Tuesday #1 (Demo)';
-  eventType.value = 'tuesday';
-  statusMessage.value = 'Loaded public Chess.com tournament URL. Click "FETCH & SYNC TOURNAMENT" to process!';
-  statusType.value = 'info';
+const submitManualStandings = async () => {
+  if (!manualName.value.trim() || !manualHandlesText.value.trim()) return;
+
+  isLoading.value = true;
+  statusMessage.value = '';
+  previewStandings.value = [];
+
+  const handles = manualHandlesText.value
+    .split(/[\n,]+/)
+    .map(h => h.trim().replace(/^@/, ''))
+    .filter(Boolean);
+
+  if (handles.length === 0) {
+    statusMessage.value = 'Please enter at least one Chess.com handle in rank order.';
+    statusType.value = 'error';
+    isLoading.value = false;
+    return;
+  }
+
+  try {
+    const res = await $fetch('/api/sync', {
+      method: 'POST',
+      body: {
+        eventType: eventType.value,
+        name: manualName.value.trim(),
+        manualHandles: handles,
+        roundsPlayed: manualRounds.value || 9
+      }
+    });
+
+    statusMessage.value = res.message;
+    statusType.value = 'success';
+    previewStandings.value = res.standingsPreview || [];
+    emit('tournament-synced');
+  } catch (err) {
+    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to save live event.';
+    statusMessage.value = detailedMsg;
+    statusType.value = 'error';
+  } finally {
+    isLoading.value = false;
+  }
 };
 </script>
 
@@ -146,7 +258,12 @@ const loadSampleTournament = () => {
 }
 
 .sync-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .sync-title {
@@ -159,17 +276,58 @@ const loadSampleTournament = () => {
   color: var(--color-dark-muted);
 }
 
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: #FAFAFA;
+  border: 1px solid var(--color-border);
+  padding: 3px;
+  border-radius: var(--radius-sharp);
+}
+
+.mode-btn {
+  background: transparent;
+  border: none;
+  font-family: var(--font-title);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--color-dark-muted);
+  border-radius: var(--radius-sharp);
+  transition: all 0.15s ease;
+}
+
+.mode-btn.active {
+  background: var(--color-dark);
+  color: #FFFFFF;
+}
+
+.info-banner {
+  background: rgba(0, 168, 107, 0.05);
+  border: 1px solid var(--color-border);
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  color: var(--color-dark);
+  margin-bottom: 16px;
+  border-radius: var(--radius-sharp);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.full-width {
+  margin-bottom: 20px;
 }
 
 .form-label {
@@ -179,9 +337,19 @@ const loadSampleTournament = () => {
   color: var(--color-dark-muted);
 }
 
-.form-input, .form-select {
+.form-input, .form-select, .form-textarea {
   border: 1px solid #D1D5DB;
   background: #FAFAFA;
+  font-family: var(--font-body);
+  padding: 8px 12px;
+  border-radius: var(--radius-sharp);
+  outline: none;
+}
+
+.form-textarea {
+  resize: vertical;
+  font-family: monospace;
+  font-size: 0.88rem;
 }
 
 .form-actions {
