@@ -51,12 +51,20 @@ let memoryStandings: StandingRow[] = [];
 let isDbInitialized = false;
 
 export async function getDbClient() {
-  const config = useRuntimeConfig();
-  if (config.tursoUrl && config.tursoAuthToken) {
+  let url = process.env.TURSO_DATABASE_URL || '';
+  let authToken = process.env.TURSO_AUTH_TOKEN || '';
+
+  try {
+    const config = useRuntimeConfig();
+    if (config.tursoUrl) url = config.tursoUrl;
+    if (config.tursoAuthToken) authToken = config.tursoAuthToken;
+  } catch (e) {}
+
+  if (url && authToken) {
     try {
       const client = createClient({
-        url: config.tursoUrl,
-        authToken: config.tursoAuthToken,
+        url,
+        authToken,
       });
 
       if (!isDbInitialized) {
@@ -65,7 +73,7 @@ export async function getDbClient() {
       }
       return client;
     } catch (err) {
-      console.warn('Failed to connect to Turso DB, falling back to memory store:', err);
+      console.warn('Failed connecting to Turso DB, falling back to memory store:', err);
       return null;
     }
   }
@@ -171,9 +179,8 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
   if (client && memoryPlayers.length > 0) {
     try {
       const statements = memoryPlayers.map(p => ({
-        sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
-              VALUES (?, ?, ?, ?, 1, 0, ?)
-              ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
+        sql: `INSERT OR REPLACE INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
+              VALUES (?, ?, ?, ?, 1, 0, ?)`,
         args: [p.id, p.name, p.email, p.chesscom_username, now]
       }));
 
@@ -204,13 +211,13 @@ export async function saveTournamentResults(
   if (client) {
     try {
       const tourneyStmt = {
-        sql: `INSERT INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
+        sql: `INSERT OR REPLACE INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
               VALUES (?, ?, ?, ?, ?, ?, ?)`,
         args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
       };
 
       const standingStmts = standings.map(st => ({
-        sql: `INSERT INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
+        sql: `INSERT OR REPLACE INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           'st-' + Math.random().toString(36).substring(2, 9),

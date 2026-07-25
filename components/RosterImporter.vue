@@ -83,8 +83,10 @@ const statusMessage = ref('');
 const statusType = ref('info');
 
 const processRawData = (rows) => {
+  if (!rows || !Array.isArray(rows) || rows.length === 0) return;
+
   const players = [];
-  
+
   rows.forEach(row => {
     const keys = Object.keys(row);
     let name = '';
@@ -92,29 +94,43 @@ const processRawData = (rows) => {
     let handle = '';
 
     keys.forEach(k => {
-      const lowerK = k.toLowerCase().replace(/\s+/g, ' ');
+      const lowerK = k.toLowerCase().trim();
 
-      if (lowerK.includes('full name') || lowerK.includes('name')) {
+      // 1. Precise Full Name matching
+      if (lowerK.includes('full name') || (lowerK.includes('name') && !lowerK.includes('chess') && !lowerK.includes('how has') && !lowerK.includes('username') && !lowerK.includes('preferred'))) {
         name = row[k];
-      } else if (lowerK.includes('telegram') || lowerK.includes('phone') || lowerK.includes('email')) {
+      }
+      // 2. Contact info matching
+      else if (lowerK.includes('telegram') || lowerK.includes('phone') || lowerK.includes('email')) {
         if (!email) email = row[k];
-      } else if (lowerK.includes('chess.com') || lowerK.includes('chess') || lowerK.includes('handle')) {
+      }
+      // 3. Chess.com Username matching (MUST match 'chess.com username' specifically, ignoring 'preferred time control' or feedback columns)
+      else if (lowerK.includes('chess.com username') || (lowerK.includes('chess.com') && !lowerK.includes('preferred') && !lowerK.includes('how has') && !lowerK.includes('time control'))) {
         handle = row[k];
       }
     });
 
-    if (!handle && keys.length >= 2) {
-      name = row[keys[1]] || row[keys[0]] || '';
-      handle = row[keys[5]] || row[keys[2]] || row[keys[1]] || '';
+    // Positional fallback if column names are unexpected
+    if (!handle && keys.length >= 6) {
+      name = name || row[keys[1]] || '';
+      email = email || row[keys[2]] || '';
+      handle = row[keys[5]] || '';
     }
 
     const cleanHandle = String(handle || '').trim().replace(/^@/, '');
-    const invalidValues = ['n/a', 'na', 'none', '-', 'no', 'null', 'undefined', ''];
+    const cleanName = String(name || '').trim();
+    const cleanEmail = String(email || '').trim();
 
-    if (cleanHandle && !invalidValues.includes(cleanHandle.toLowerCase())) {
+    // Filter out time control values (5+3, 3+2, etc.), N/A, and feedback strings
+    const invalidHandles = [
+      'n/a', 'na', 'none', '-', 'no', 'null', 'undefined', '',
+      '5+3', '3+2', '5+1', '3+0', '1+1', '5+0', '10+0', '15+10'
+    ];
+
+    if (cleanHandle && !invalidHandles.includes(cleanHandle.toLowerCase()) && !cleanHandle.includes('+')) {
       players.push({
-        name: String(name || 'Chess Player').trim(),
-        email: String(email || '-').trim(),
+        name: cleanName || cleanHandle,
+        email: cleanEmail || '-',
         chesscom_username: cleanHandle
       });
     }
@@ -125,7 +141,7 @@ const processRawData = (rows) => {
     statusMessage.value = 'Could not find valid Chess.com handles in file. Ensure spreadsheet includes the Google Form "Chess.com Username" column.';
     statusType.value = 'error';
   } else {
-    statusMessage.value = `Successfully parsed ${players.length} valid registered players from spreadsheet. Click "Confirm & Save Roster" below.`;
+    statusMessage.value = `Successfully parsed ${players.length} valid registered players from spreadsheet. Click "CONFIRM & SAVE ROSTER" below.`;
     statusType.value = 'success';
   }
 };
@@ -184,12 +200,13 @@ const submitRoster = async () => {
     const msg = res?.message || `Successfully imported ${parsedPlayers.value.length} players`;
     const total = res?.totalRegistered ?? parsedPlayers.value.length;
 
-    statusMessage.value = `${msg}. Total registered players: ${total}`;
+    statusMessage.value = `${msg}. Total registered players in database: ${total}`;
     statusType.value = 'success';
     parsedPlayers.value = [];
     emit('roster-updated');
   } catch (err) {
-    statusMessage.value = err.message || 'Failed to import roster.';
+    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to import roster.';
+    statusMessage.value = detailedMsg;
     statusType.value = 'error';
   } finally {
     isSubmitting.value = false;
