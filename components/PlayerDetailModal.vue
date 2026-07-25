@@ -7,7 +7,7 @@
       <div class="modal-header">
         <div class="header-left">
           <div class="header-brand-row">
-            <EthChessLogo :size="28" />
+            <EthChessLogo :size="24" />
             <div class="terracotta-tag tag-mini">
               PERFORMANCE RECORD
             </div>
@@ -116,15 +116,15 @@ const formatRankNum = (rank) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
 }
 
 .modal-content {
   width: 100%;
   max-width: 720px;
-  max-height: 85vh;
+  max-height: 90vh;
   overflow-y: auto;
-  padding: 36px;
+  padding: 32px;
   background: #FFFFFF;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
@@ -134,14 +134,14 @@ const formatRankNum = (rank) => {
 .modal-watermark {
   top: 20px;
   right: 20px;
-  font-size: 8rem;
+  font-size: 7rem;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--color-border);
   position: relative;
@@ -151,22 +151,22 @@ const formatRankNum = (rank) => {
 .header-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .header-brand-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .tag-mini {
-  font-size: 0.62rem;
-  padding: 3px 10px;
+  font-size: 0.6rem;
+  padding: 2px 8px;
 }
 
 .player-name {
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   line-height: 1.1;
   color: var(--color-dark);
 }
@@ -176,18 +176,14 @@ const formatRankNum = (rank) => {
   text-decoration: none;
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 0.85rem;
-}
-
-.player-handle:hover {
-  text-decoration: underline;
+  font-size: 0.82rem;
 }
 
 .close-btn {
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
-  padding: 6px;
+  padding: 5px;
   cursor: pointer;
   color: var(--color-dark-muted);
   transition: all 0.15s ease;
@@ -200,15 +196,15 @@ const formatRankNum = (rank) => {
 }
 
 .close-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 32px;
+  gap: 10px;
+  margin-bottom: 24px;
   position: relative;
   z-index: 1;
 }
@@ -217,7 +213,7 @@ const formatRankNum = (rank) => {
   background: #FAFAFA;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
-  padding: 14px 12px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -226,30 +222,30 @@ const formatRankNum = (rank) => {
 
 .stat-lbl {
   font-family: var(--font-title);
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--color-dark-muted);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .stat-val {
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--color-dark);
 }
 
 .rank-val { color: var(--color-dark); }
 .jade-val { color: var(--color-jade); }
-.podium-val { font-size: 0.85rem; }
+.podium-val { font-size: 0.78rem; }
 
 .history-title {
   font-family: var(--font-title);
-  font-size: 0.85rem;
-  letter-spacing: 0.04em;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
   color: var(--color-dark);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   position: relative;
   z-index: 1;
 }
@@ -257,7 +253,8 @@ const formatRankNum = (rank) => {
 .history-table-box {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   position: relative;
   z-index: 1;
 }
@@ -266,21 +263,23 @@ const formatRankNum = (rank) => {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
 .history-table th {
   background: #FAFAFA;
-  padding: 10px 14px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--color-border);
   font-family: var(--font-title);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: #6B7280;
+  white-space: nowrap;
 }
 
 .history-table td {
-  padding: 12px 14px;
+  padding: 10px;
   border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
 }
 
 .tourney-name {
@@ -289,9 +288,9 @@ const formatRankNum = (rank) => {
 
 .cat-badge {
   font-family: var(--font-title);
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: var(--radius-sharp);
 }
 
@@ -305,26 +304,30 @@ const formatRankNum = (rank) => {
   color: var(--color-terracotta);
 }
 
-.rank-cell {
-  font-family: var(--font-title);
-  font-weight: 700;
-}
-
-.pts-cell {
-  font-family: var(--font-title);
-  font-weight: 700;
-  color: var(--color-jade);
-}
+.rank-cell { font-family: var(--font-title); font-weight: 700; }
+.pts-cell { font-family: var(--font-title); font-weight: 700; color: var(--color-jade); }
 
 .no-hist {
   text-align: center;
-  padding: 24px;
+  padding: 20px;
   font-family: var(--font-title);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--color-dark-muted);
 }
 
 @media (max-width: 640px) {
+  .modal-content {
+    padding: 20px 16px;
+  }
+
+  .modal-watermark {
+    font-size: 4rem;
+  }
+
+  .player-name {
+    font-size: 1.3rem;
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }

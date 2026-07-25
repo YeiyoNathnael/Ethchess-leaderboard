@@ -1,6 +1,6 @@
 <template>
   <div class="leaderboard-wrapper editorial-card">
-    <!-- Giant Background Watermark Text (from promo poster style) -->
+    <!-- Giant Background Watermark Text -->
     <div class="bg-watermark-text">ETHCHESS</div>
 
     <!-- Header with Typographic Hierarchy -->
@@ -14,33 +14,16 @@
         <input 
           v-model="searchQuery" 
           type="text" 
-          placeholder="SEARCH PLAYER OR HANDLE..."
+          placeholder="SEARCH PLAYER..."
           class="editorial-search-input"
         />
       </div>
     </div>
 
-    <!-- Editorial Podium Cards with Tilted Terracotta Tag & Bold Numerals -->
+    <!-- Editorial Podium Cards for Top 3 -->
     <div v-if="topThree.length > 0 && !searchQuery" class="podium-editorial-grid">
-      <!-- 2nd Place -->
-      <div v-if="topThree[1]" class="podium-card rank-second" @click="$emit('select-player', topThree[1])">
-        <div class="podium-top">
-          <span class="podium-num">02</span>
-          <span class="podium-label">RANK 02</span>
-        </div>
-        <div class="podium-meta">
-          <span class="podium-name">{{ topThree[1].name }}</span>
-          <span class="podium-handle">@{{ topThree[1].username }}</span>
-        </div>
-        <div class="podium-score">
-          <span class="pts-number">{{ topThree[1].totalPoints }}</span>
-          <span class="pts-label">PTS</span>
-        </div>
-      </div>
-
       <!-- 1st Place (Season Leader - Pinned with Tilted Terracotta Tag) -->
       <div v-if="topThree[0]" class="podium-card rank-first" @click="$emit('select-player', topThree[0])">
-        <!-- Rotated Terracotta Sticker Tag from Poster Brand Language -->
         <div class="terracotta-tag tag-pinned">
           SEASON LEADER
         </div>
@@ -56,6 +39,22 @@
         <div class="podium-score hero-score">
           <span class="pts-number hero-pts">{{ topThree[0].totalPoints }}</span>
           <span class="pts-label hero-pts-lbl">PTS</span>
+        </div>
+      </div>
+
+      <!-- 2nd Place -->
+      <div v-if="topThree[1]" class="podium-card rank-second" @click="$emit('select-player', topThree[1])">
+        <div class="podium-top">
+          <span class="podium-num">02</span>
+          <span class="podium-label">RANK 02</span>
+        </div>
+        <div class="podium-meta">
+          <span class="podium-name">{{ topThree[1].name }}</span>
+          <span class="podium-handle">@{{ topThree[1].username }}</span>
+        </div>
+        <div class="podium-score">
+          <span class="pts-number">{{ topThree[1].totalPoints }}</span>
+          <span class="pts-label">PTS</span>
         </div>
       </div>
 
@@ -76,19 +75,19 @@
       </div>
     </div>
 
-    <!-- Editorial Data Table (Quiet Hairline Dividers + Terracotta Accents) -->
+    <!-- Editorial Data Table -->
     <div class="table-responsive">
       <table class="editorial-table">
         <thead>
           <tr>
             <th class="th-rank">RANK</th>
             <th class="th-player">PLAYER</th>
-            <th class="th-handle">CHESS.COM HANDLE</th>
-            <th class="th-stat">EVENTS</th>
-            <th class="th-stat">PODIUMS</th>
-            <th class="th-stat">F1 PTS</th>
-            <th class="th-stat">PART. BONUS</th>
-            <th class="th-total">TOTAL POINTS</th>
+            <th class="th-handle">HANDLE</th>
+            <th class="th-stat hide-mobile">EVENTS</th>
+            <th class="th-stat hide-mobile">PODIUMS</th>
+            <th class="th-stat hide-mobile">F1 PTS</th>
+            <th class="th-stat hide-mobile">BONUS</th>
+            <th class="th-total">TOTAL PTS</th>
             <th class="th-action">DETAILS</th>
           </tr>
         </thead>
@@ -120,9 +119,9 @@
               </a>
             </td>
 
-            <td class="td-stat">{{ row.eventsPlayed }}</td>
+            <td class="td-stat hide-mobile">{{ row.eventsPlayed }}</td>
 
-            <td class="td-stat">
+            <td class="td-stat hide-mobile">
               <div class="podium-summary">
                 <span v-if="row.firstCount > 0" class="podium-subtle jade-highlight">1st: {{ row.firstCount }}</span>
                 <span v-if="row.secondCount > 0" class="podium-subtle">2nd: {{ row.secondCount }}</span>
@@ -131,8 +130,8 @@
               </div>
             </td>
 
-            <td class="td-stat">{{ row.rankPoints }}</td>
-            <td class="td-stat">
+            <td class="td-stat hide-mobile">{{ row.rankPoints }}</td>
+            <td class="td-stat hide-mobile">
               <span class="bonus-stat-tag">+{{ row.participationPoints }}</span>
             </td>
 
@@ -144,14 +143,14 @@
 
             <td class="td-action">
               <button class="editorial-btn" @click.stop="$emit('select-player', row)">
-                HISTORY &rarr;
+                VIEW &rarr;
               </button>
             </td>
           </tr>
 
           <tr v-if="filteredRows.length === 0">
             <td colspan="9" class="empty-state">
-              NO STANDINGS FOUND. SYNC A TOURNAMENT OR ADJUST SEARCH QUERY.
+              NO STANDINGS FOUND. UPLOAD ROSTER OR SYNC A TOURNAMENT.
             </td>
           </tr>
         </tbody>
@@ -195,7 +194,7 @@ const formatRankNum = (rank) => {
 .leaderboard-wrapper {
   padding: 40px;
   border: 1px solid var(--color-border);
-  margin-bottom: 48px;
+  margin-bottom: 36px;
   background: #FFFFFF;
   border-radius: var(--radius-sharp);
   position: relative;
@@ -205,17 +204,17 @@ const formatRankNum = (rank) => {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 36px;
-  padding-bottom: 20px;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--color-border);
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
   position: relative;
   z-index: 1;
 }
 
 .editorial-title {
-  font-size: 1.8rem;
+  font-size: 1.7rem;
   letter-spacing: 0.01em;
   color: var(--color-dark);
   line-height: 1.15;
@@ -223,9 +222,14 @@ const formatRankNum = (rank) => {
 
 .editorial-subtitle {
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--color-dark-muted);
-  margin-top: 6px;
+  margin-top: 4px;
+}
+
+.search-box {
+  width: 100%;
+  max-width: 240px;
 }
 
 .editorial-search-input {
@@ -233,11 +237,11 @@ const formatRankNum = (rank) => {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-  padding: 8px 14px;
+  padding: 8px 12px;
   border: 1px solid #D1D5DB;
   border-radius: var(--radius-sharp);
   background: #FAFAFA;
-  width: 240px;
+  width: 100%;
   outline: none;
 }
 
@@ -249,9 +253,9 @@ const formatRankNum = (rank) => {
 /* Editorial Podium Grid */
 .podium-editorial-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 40px;
+  margin-bottom: 36px;
   align-items: stretch;
   position: relative;
   z-index: 1;
@@ -261,7 +265,7 @@ const formatRankNum = (rank) => {
   background: #FAFAFA;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
-  padding: 20px 22px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -275,7 +279,6 @@ const formatRankNum = (rank) => {
   transform: translateY(-2px);
 }
 
-/* #1 Season Leader Card with Terracotta Tag */
 .podium-card.rank-first {
   background: #FAFDFB;
   border: 1px solid var(--color-border);
@@ -285,8 +288,8 @@ const formatRankNum = (rank) => {
 .tag-pinned {
   position: absolute;
   top: -12px;
-  right: 14px;
-  font-size: 0.68rem;
+  right: 12px;
+  font-size: 0.65rem;
 }
 
 .podium-top {
@@ -306,7 +309,7 @@ const formatRankNum = (rank) => {
 
 .hero-num {
   color: var(--color-jade);
-  font-size: 2.8rem;
+  font-size: 2.6rem;
 }
 
 .terracotta-num {
@@ -315,40 +318,36 @@ const formatRankNum = (rank) => {
 
 .podium-label {
   font-family: var(--font-title);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--color-dark-muted);
 }
 
-.hero-label {
-  color: var(--color-jade);
-}
-
-.terracotta-lbl {
-  color: var(--color-terracotta);
-}
+.hero-label { color: var(--color-jade); }
+.terracotta-lbl { color: var(--color-terracotta); }
 
 .podium-meta {
   display: flex;
   flex-direction: column;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .podium-name {
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: var(--color-dark);
+  word-break: break-word;
 }
 
 .hero-name {
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
 }
 
 .podium-handle {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--color-dark-muted);
 }
 
@@ -360,23 +359,21 @@ const formatRankNum = (rank) => {
 
 .pts-number {
   font-family: var(--font-title);
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   font-weight: 700;
   color: var(--color-dark);
 }
 
 .hero-pts {
   color: var(--color-jade);
-  font-size: 1.7rem;
+  font-size: 1.6rem;
 }
 
-.hero-pts-lbl {
-  color: var(--color-jade);
-}
+.hero-pts-lbl { color: var(--color-jade); }
 
 .pts-label {
   font-family: var(--font-title);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--color-dark-muted);
 }
@@ -384,6 +381,7 @@ const formatRankNum = (rank) => {
 /* Editorial Table */
 .table-responsive {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   position: relative;
   z-index: 1;
 }
@@ -396,13 +394,14 @@ const formatRankNum = (rank) => {
 
 .editorial-table th {
   font-family: var(--font-title);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: #6B7280;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
   background: transparent;
+  white-space: nowrap;
 }
 
 .table-row {
@@ -420,25 +419,20 @@ const formatRankNum = (rank) => {
 }
 
 .table-row td {
-  padding: 12px 14px;
-  font-size: 0.88rem;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 .rank-num {
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: #6B7280;
 }
 
-.rank-num-first {
-  color: var(--color-jade);
-  font-size: 1.1rem;
-}
-
-.rank-num-third {
-  color: var(--color-terracotta);
-}
+.rank-num-first { color: var(--color-jade); font-size: 1rem; }
+.rank-num-third { color: var(--color-terracotta); }
 
 .player-fullname {
   font-weight: 600;
@@ -458,50 +452,36 @@ const formatRankNum = (rank) => {
 
 .podium-summary {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .podium-subtle {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 500;
   color: #9CA3AF;
 }
 
-.jade-highlight {
-  color: var(--color-jade);
-  font-weight: 700;
-}
-
-.terracotta-highlight {
-  color: var(--color-terracotta);
-  font-weight: 700;
-}
-
-.bonus-stat-tag {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--color-jade);
-}
+.jade-highlight { color: var(--color-jade); font-weight: 700; }
+.terracotta-highlight { color: var(--color-terracotta); font-weight: 700; }
+.bonus-stat-tag { font-size: 0.78rem; font-weight: 600; color: var(--color-jade); }
 
 .total-pts-text {
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--color-dark);
 }
 
-.hero-total-pts {
-  color: var(--color-jade);
-}
+.hero-total-pts { color: var(--color-jade); }
 
 .editorial-btn {
   background: transparent;
   border: 1px solid #D1D5DB;
   color: #4B5563;
   font-family: var(--font-title);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 4px 8px;
   cursor: pointer;
   border-radius: var(--radius-sharp);
   transition: all 0.15s ease;
@@ -515,15 +495,46 @@ const formatRankNum = (rank) => {
 
 .empty-state {
   text-align: center;
-  padding: 36px;
+  padding: 32px 16px;
   font-family: var(--font-title);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--color-dark-muted);
 }
 
+/* Mobile Responsive Adjustments */
 @media (max-width: 768px) {
+  .leaderboard-wrapper {
+    padding: 20px 16px;
+  }
+
+  .editorial-title {
+    font-size: 1.3rem;
+  }
+
+  .editorial-subtitle {
+    font-size: 0.78rem;
+  }
+
+  .search-box {
+    max-width: 100%;
+  }
+
   .podium-editorial-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .podium-card {
+    padding: 14px 16px;
+  }
+
+  .hide-mobile {
+    display: none !important;
+  }
+
+  .editorial-table td, .editorial-table th {
+    padding: 8px 8px;
+    font-size: 0.8rem;
   }
 }
 </style>

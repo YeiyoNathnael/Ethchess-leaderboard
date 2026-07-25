@@ -2,13 +2,13 @@
   <header class="app-header">
     <div class="header-container">
       <div class="brand-area" @click="$emit('change-tab', 'overall')">
-        <EthChessLogo :size="38" />
+        <EthChessLogo :size="34" class="header-logo" />
         <div class="brand-text">
           <div class="brand-title-row">
             <h1 class="brand-title">ETHCHESS™</h1>
             <span class="brand-badge">LEAGUE</span>
           </div>
-          <span class="brand-tagline">OFFICIAL AUTOMATIC LEADERBOARD SYSTEM</span>
+          <span class="brand-tagline">AUTOMATIC LEADERBOARD</span>
         </div>
       </div>
 
@@ -17,28 +17,28 @@
           :class="['nav-btn', { active: activeTab === 'overall' }]"
           @click="$emit('change-tab', 'overall')"
         >
-          OVERALL SEASON
+          OVERALL
         </button>
 
         <button 
           :class="['nav-btn', { active: activeTab === 'tuesday' }]"
           @click="$emit('change-tab', 'tuesday')"
         >
-          ETHCHESS TUESDAY
+          TUESDAY
         </button>
 
         <button 
           :class="['nav-btn', { active: activeTab === 'friday' }]"
           @click="$emit('change-tab', 'friday')"
         >
-          FREESTYLE FRIDAY
+          FRIDAY
         </button>
 
         <button 
           :class="['nav-btn', 'rules-btn', { active: activeTab === 'rules' }]"
           @click="$emit('change-tab', 'rules')"
         >
-          SCORING RULES
+          RULES
         </button>
 
         <button 
@@ -47,7 +47,7 @@
         >
           <Lock v-if="!isAdminAuthenticated" class="nav-icon" />
           <Unlock v-else class="nav-icon auth-icon" />
-          ADMIN PORTAL
+          ADMIN
         </button>
       </nav>
     </div>
@@ -76,7 +76,7 @@ defineEmits(['change-tab', 'request-admin-access']);
 .app-header {
   background: #FFFFFF;
   border-bottom: 1px solid var(--color-border);
-  padding: 16px 32px;
+  padding: 12px 20px;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -89,24 +89,25 @@ defineEmits(['change-tab', 'request-admin-access']);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
 }
 
 .brand-area {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .brand-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .brand-title {
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--color-dark);
   line-height: 1.1;
@@ -117,26 +118,34 @@ defineEmits(['change-tab', 'request-admin-access']);
   background-color: var(--color-jade);
   color: #FFFFFF;
   font-family: var(--font-title);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 2px;
 }
 
 .brand-tagline {
   font-family: var(--font-title);
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 700;
   color: var(--color-dark-muted);
   letter-spacing: 0.04em;
+  display: block;
 }
 
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  padding-bottom: 2px;
+}
+
+.nav-links::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .nav-btn {
@@ -144,18 +153,19 @@ defineEmits(['change-tab', 'request-admin-access']);
   border: none;
   border-bottom: 2px solid transparent;
   font-family: var(--font-title);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   color: var(--color-dark-muted);
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   transition: all 0.15s ease;
-  border-radius: 0px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .nav-btn:hover {
@@ -165,12 +175,11 @@ defineEmits(['change-tab', 'request-admin-access']);
 .nav-btn.active {
   color: var(--color-dark);
   border-bottom-color: var(--color-jade);
-  background: transparent;
 }
 
 .nav-icon {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .auth-icon {
@@ -180,7 +189,7 @@ defineEmits(['change-tab', 'request-admin-access']);
 .admin-btn {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sharp);
-  padding: 6px 12px;
+  padding: 5px 10px;
 }
 
 .admin-btn.active {
@@ -189,12 +198,21 @@ defineEmits(['change-tab', 'request-admin-access']);
   border-color: var(--color-dark);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
+  .app-header {
+    padding: 10px 14px;
+  }
+
   .header-container {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    gap: 10px;
   }
   
+  .brand-area {
+    justify-content: center;
+  }
+
   .nav-links {
     width: 100%;
     justify-content: flex-start;

@@ -166,3 +166,16 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus {
 ::-webkit-scrollbar-thumb {
   background: #D1D5DB;
 }
+
+/* Global Mobile Media Queries */
+@media (max-width: 768px) {
+  .bg-watermark-text {
+    font-size: 3.5rem;
+  }
+
+  .terracotta-tag {
+    font-size: 0.62rem;
+    padding: 3px 8px;
+    transform: rotate(-3deg);
+  }
+}

@@ -231,4 +231,23 @@ onMounted(() => {
   color: var(--color-jade);
   letter-spacing: 0.1em;
 }
+
+@media (max-width: 768px) {
+  .main-content {
+    margin: 16px auto;
+    padding: 0 12px;
+  }
+
+  .admin-header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .footer-content {
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+  }
+}
 </style>
