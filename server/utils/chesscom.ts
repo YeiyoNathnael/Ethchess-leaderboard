@@ -18,8 +18,11 @@ export interface ChessComTournamentResponse {
 }
 
 /**
- * Extracts tournament ID or slug from a standard Chess.com tournament URL.
- * e.g., "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
+ * Extracts tournament ID or slug from any Chess.com tournament URL format.
+ * Handles:
+ * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
+ * - "https://www.chess.com/play/tournament/6629639" -> "6629639"
+ * - "6629639" -> "6629639"
  */
 export function extractTournamentSlug(urlOrSlug: string): string {
   let cleaned = urlOrSlug.trim();
@@ -27,6 +30,9 @@ export function extractTournamentSlug(urlOrSlug: string): string {
     const urlParts = cleaned.split('/tournament/');
     if (urlParts.length > 1) {
       cleaned = urlParts[1].split('?')[0].split('#')[0].replace(/\/$/, '');
+    } else {
+      const slashParts = cleaned.split('/');
+      cleaned = slashParts[slashParts.length - 1].split('?')[0].split('#')[0];
     }
   }
   return cleaned;
@@ -39,24 +45,20 @@ export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
   const apiUrl = `https://api.chess.com/pub/tournament/${slug}`;
 
-  try {
-    const response = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'EthChess-Leaderboard/1.0 (contact: admin@ethchess.org)',
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Chess.com API HTTP Error ${response.status}: ${response.statusText}`);
+  const response = await fetch(apiUrl, {
+    headers: {
+      'User-Agent': 'EthChess-Leaderboard/1.0 (contact: admin@ethchess.org)',
+      'Accept': 'application/json'
     }
+  });
 
-    const data: ChessComTournamentResponse = await response.json();
-    return {
-      slug,
-      data
-    };
-  } catch (err: any) {
-    throw new Error(`Failed to fetch Chess.com tournament data: ${err.message}`);
+  if (!response.ok) {
+    throw new Error(`Chess.com API returned ${response.status} for slug "${slug}".`);
   }
+
+  const data: ChessComTournamentResponse = await response.json();
+  return {
+    slug,
+    data
+  };
 }
