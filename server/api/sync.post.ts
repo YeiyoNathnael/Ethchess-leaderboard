@@ -13,13 +13,20 @@ export default defineEventHandler(async (event) => {
   const selectedEventType = eventType === 'friday' ? 'friday' : 'tuesday';
   const slug = extractTournamentSlug(url);
 
-  // Get current registered players & banned players
+  // 1. Get current registered players from Database
   const registeredPlayers = await getAllPlayers();
+  if (registeredPlayers.length === 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'No registered players found in roster database. Please upload your Google Form responses spreadsheet in the Roster Importer first!'
+    });
+  }
+
   const registeredUsernames = new Set<string>();
   const bannedUsernames = new Set<string>();
 
   registeredPlayers.forEach(p => {
-    const handle = p.chesscom_username.toLowerCase();
+    const handle = p.chesscom_username.trim().toLowerCase();
     if (p.is_banned) {
       bannedUsernames.add(handle);
     } else {
@@ -27,45 +34,54 @@ export default defineEventHandler(async (event) => {
     }
   });
 
-  let tournamentName = name || `EthChess ${selectedEventType === 'tuesday' ? 'Tuesday' : 'Friday'} #${slug}`;
-  let rawStandings: Array<{ username: string; rank: number; swissPoints: number; roundsPlayed: number }> = [];
-
+  // 2. Fetch real tournament data from Chess.com Public API
+  let slugResult;
   try {
-    // Attempt fetching from Chess.com Public API
-    const { data } = await fetchChessComTournament(url);
-    if (data.name) tournamentName = name || data.name;
-
-    rawStandings = (data.players || []).map((p, idx) => ({
-      username: p.username,
-      rank: idx + 1,
-      swissPoints: p.points ?? p.score ?? (8.5 - idx * 0.5),
-      roundsPlayed: data.rounds || data.settings?.total_rounds || 9
-    }));
+    slugResult = await fetchChessComTournament(url);
   } catch (err: any) {
-    // Fallback for live/private Chess.com tournament URLs (e.g. /play/tournament/6629639)
-    // Map registered players directly so sync succeeds seamlessly
-    const activePlayers = registeredPlayers.filter(p => !p.is_banned);
-    
-    // Sort or map active players into standings
-    rawStandings = activePlayers.map((p, idx) => ({
-      username: p.chesscom_username,
-      rank: idx + 1,
-      swissPoints: Math.max(1, 9 - idx * 0.5),
-      roundsPlayed: 9
-    }));
+    throw createError({
+      statusCode: 404,
+      statusMessage: err.message || `Could not fetch tournament data for "${slug}". Verify the link/slug is public on Chess.com.`
+    });
   }
 
-  // Calculate official EthChess League points (F1 + Participation)
+  const { data } = slugResult;
+  const tournamentName = name || data.name || `EthChess ${selectedEventType === 'tuesday' ? 'Tuesday' : 'Friday'} #${slug}`;
+  const rawPlayers = data.players || [];
+
+  if (rawPlayers.length === 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Chess.com API returned 0 participants for tournament "${tournamentName}". Make sure the tournament has completed rounds.`
+    });
+  }
+
+  // 3. Map raw players into standard standing inputs
+  const rawStandings = rawPlayers.map((p, idx) => ({
+    username: p.username,
+    rank: idx + 1,
+    swissPoints: p.points ?? p.score ?? 0,
+    roundsPlayed: data.rounds ? data.rounds.length : (data.settings?.total_rounds || 9)
+  }));
+
+  // 4. Calculate official EthChess League points (filtering registered roster only)
   const calculatedScores = processTournamentStandings(rawStandings, registeredUsernames, bannedUsernames);
 
-  // Save to DB
+  if (calculatedScores.length === 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Fetched ${rawPlayers.length} Chess.com participants for "${tournamentName}", but NONE matched your ${registeredPlayers.length} registered Google Form players. Check that Chess.com handles in your spreadsheet match player usernames exactly.`
+    });
+  }
+
+  // 5. Save real tournament standings to DB
   const now = new Date().toISOString().split('T')[0];
   await saveTournamentResults(
     {
       url_slug: slug,
       name: tournamentName,
       event_type: selectedEventType,
-      rounds_count: 9,
+      rounds_count: data.rounds ? data.rounds.length : 9,
       sync_date: now,
       season_id: 'season-1'
     },
@@ -82,7 +98,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     success: true,
-    message: `Synced tournament "${tournamentName}" successfully!`,
+    message: `Successfully synced tournament "${tournamentName}"! Processed ${calculatedScores.length} registered players out of ${rawPlayers.length} total participants.`,
     processedPlayersCount: calculatedScores.length,
     standingsPreview: calculatedScores
   };
