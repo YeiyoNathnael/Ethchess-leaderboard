@@ -51,14 +51,21 @@ let memoryStandings: StandingRow[] = [];
 let isDbInitialized = false;
 
 export async function getDbClient() {
-  let url = process.env.TURSO_DATABASE_URL || '';
-  let authToken = process.env.TURSO_AUTH_TOKEN || '';
+  let url = process.env.TURSO_DATABASE_URL || process.env.NUXT_TURSO_URL || '';
+  let authToken = process.env.TURSO_AUTH_TOKEN || process.env.NUXT_TURSO_AUTH_TOKEN || '';
 
   try {
     const config = useRuntimeConfig();
-    if (config.tursoUrl) url = config.tursoUrl;
-    if (config.tursoAuthToken) authToken = config.tursoAuthToken;
+    if (config.tursoUrl && typeof config.tursoUrl === 'string' && config.tursoUrl.trim()) {
+      url = config.tursoUrl;
+    }
+    if (config.tursoAuthToken && typeof config.tursoAuthToken === 'string' && config.tursoAuthToken.trim()) {
+      authToken = config.tursoAuthToken;
+    }
   } catch (e) {}
+
+  url = url.trim();
+  authToken = authToken.trim();
 
   if (url && authToken) {
     try {
@@ -158,7 +165,7 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
   const client = await getDbClient();
   const now = new Date().toISOString().split('T')[0];
 
-  // 1. Update memory store
+  // 1. Update memory store first
   for (const p of newPlayers) {
     const cleanHandle = p.chesscom_username.trim();
     if (!cleanHandle) continue;
@@ -180,16 +187,15 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
     }
   }
 
-  // 2. Batch insert into Turso DB in chunks of 25 to ensure reliable execution
+  // 2. Batch insert/upsert into Turso DB in chunks of 25 to ensure reliable execution
   if (client) {
     const validPlayers = memoryPlayers.filter(p => p.chesscom_username);
     const chunkSize = 25;
     for (let i = 0; i < validPlayers.length; i += chunkSize) {
       const chunk = validPlayers.slice(i, i + chunkSize);
       const statements = chunk.map(p => ({
-        sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
-              VALUES (?, ?, ?, ?, 1, 0, ?)
-              ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
+        sql: `INSERT OR REPLACE INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
+              VALUES (?, ?, ?, ?, 1, 0, ?)`,
         args: [p.id, p.name, p.email, p.chesscom_username, now]
       }));
 
