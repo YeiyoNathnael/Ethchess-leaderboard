@@ -119,7 +119,8 @@ const syncTournament = async () => {
     previewStandings.value = res.standingsPreview || [];
     emit('tournament-synced');
   } catch (err) {
-    statusMessage.value = err.statusMessage || err.message || 'Failed to sync tournament URL.';
+    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to sync tournament URL.';
+    statusMessage.value = detailedMsg;
     statusType.value = 'error';
   } finally {
     isLoading.value = false;
@@ -127,10 +128,10 @@ const syncTournament = async () => {
 };
 
 const loadSampleTournament = () => {
-  tournamentUrl.value = 'https://www.chess.com/tournament/ethchess-tuesday-season1-r3';
-  customName.value = 'EthChess Tuesday #3 (Demo Sync)';
+  tournamentUrl.value = 'https://www.chess.com/tournament/tuesday';
+  customName.value = 'EthChess Tuesday #1 (Demo)';
   eventType.value = 'tuesday';
-  statusMessage.value = 'Loaded sample URL format. Click "FETCH & SYNC TOURNAMENT" to process!';
+  statusMessage.value = 'Loaded public Chess.com tournament URL. Click "FETCH & SYNC TOURNAMENT" to process!';
   statusType.value = 'info';
 };
 </script>
