@@ -40,7 +40,7 @@ export interface StandingRow {
   total_points: number;
 }
 
-// Clean in-memory storage (fallback if Turso is empty or unreachable)
+// Clean in-memory storage fallback
 let memoryPlayers: PlayerRow[] = [];
 let memorySeasons: SeasonRow[] = [
   { id: 'season-1', name: 'Season 1 (2026)', start_date: '2026-07-01', end_date: '2026-09-30', is_active: 1 }
@@ -87,11 +87,16 @@ async function initDbTables(client: ReturnType<typeof createClient>) {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT,
-        chesscom_username TEXT UNIQUE NOT NULL,
+        chesscom_username TEXT NOT NULL,
         is_verified INTEGER DEFAULT 1,
         is_banned INTEGER DEFAULT 0,
         created_at TEXT
       )
+    `);
+
+    // Ensure UNIQUE index exists on chesscom_username for conflict resolution
+    await client.execute(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_players_chesscom_username ON players(chesscom_username)
     `);
 
     await client.execute(`
@@ -130,7 +135,7 @@ async function initDbTables(client: ReturnType<typeof createClient>) {
       )
     `);
   } catch (err) {
-    console.warn('Could not auto-create Turso tables:', err);
+    console.warn('Could not auto-create Turso tables/indexes:', err);
   }
 }
 
@@ -153,7 +158,7 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
   const client = await getDbClient();
   const now = new Date().toISOString().split('T')[0];
 
-  // 1. Always update memory store first so roster is instantly available
+  // 1. Update memory store
   for (const p of newPlayers) {
     const cleanHandle = p.chesscom_username.trim();
     if (!cleanHandle) continue;
@@ -175,18 +180,25 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
     }
   }
 
-  // 2. Batch insert/upsert into Turso DB in a single HTTP request
-  if (client && memoryPlayers.length > 0) {
-    try {
-      const statements = memoryPlayers.map(p => ({
-        sql: `INSERT OR REPLACE INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
-              VALUES (?, ?, ?, ?, 1, 0, ?)`,
+  // 2. Batch insert into Turso DB in chunks of 25 to ensure reliable execution
+  if (client) {
+    const validPlayers = memoryPlayers.filter(p => p.chesscom_username);
+    const chunkSize = 25;
+    for (let i = 0; i < validPlayers.length; i += chunkSize) {
+      const chunk = validPlayers.slice(i, i + chunkSize);
+      const statements = chunk.map(p => ({
+        sql: `INSERT INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
+              VALUES (?, ?, ?, ?, 1, 0, ?)
+              ON CONFLICT(chesscom_username) DO UPDATE SET name = excluded.name, email = excluded.email`,
         args: [p.id, p.name, p.email, p.chesscom_username, now]
       }));
 
-      await client.batch(statements, 'write');
-    } catch (err) {
-      console.warn('Batch inserting players to Turso DB failed:', err);
+      try {
+        await client.batch(statements, 'write');
+      } catch (err: any) {
+        console.error('Turso DB batch insert error:', err);
+        throw new Error(`Failed saving roster to Turso Database: ${err.message || err}`);
+      }
     }
   }
 }
@@ -198,7 +210,6 @@ export async function saveTournamentResults(
   const client = await getDbClient();
   const tourneyId = 'tourney-' + Date.now();
 
-  // Always update memory store first
   memoryTournaments.push({ ...tournament, id: tourneyId });
   standings.forEach(st => {
     memoryStandings.push({
@@ -209,32 +220,33 @@ export async function saveTournamentResults(
   });
 
   if (client) {
+    const tourneyStmt = {
+      sql: `INSERT OR REPLACE INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
+    };
+
+    const standingStmts = standings.map(st => ({
+      sql: `INSERT OR REPLACE INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        'st-' + Math.random().toString(36).substring(2, 9),
+        tourneyId,
+        st.player_username,
+        st.rank,
+        st.swiss_points,
+        st.rounds_played,
+        st.rank_points,
+        st.participation_points,
+        st.total_points
+      ]
+    }));
+
     try {
-      const tourneyStmt = {
-        sql: `INSERT OR REPLACE INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
-      };
-
-      const standingStmts = standings.map(st => ({
-        sql: `INSERT OR REPLACE INTO standings (id, tournament_id, player_username, rank, swiss_points, rounds_played, rank_points, participation_points, total_points)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          'st-' + Math.random().toString(36).substring(2, 9),
-          tourneyId,
-          st.player_username,
-          st.rank,
-          st.swiss_points,
-          st.rounds_played,
-          st.rank_points,
-          st.participation_points,
-          st.total_points
-        ]
-      }));
-
       await client.batch([tourneyStmt, ...standingStmts], 'write');
-    } catch (err) {
-      console.warn('Could not save tournament results to Turso DB:', err);
+    } catch (err: any) {
+      console.error('Could not save tournament results to Turso DB:', err);
+      throw new Error(`Failed saving tournament standings to Turso Database: ${err.message || err}`);
     }
   }
 }
@@ -263,14 +275,12 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
     console.warn('Failed querying leaderboard from Turso DB:', err);
   }
 
-  // Filter tournaments by eventType if requested
   const filteredTourneys = eventType === 'all'
     ? tournaments
     : tournaments.filter(t => t.event_type === eventType);
 
   const validTourneyIds = new Set(filteredTourneys.map(t => t.id));
 
-  // Aggregate stats per player
   const playerStats = new Map<string, {
     username: string;
     name: string;
@@ -298,7 +308,7 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
 
     const lowerHandle = st.player_username.toLowerCase();
     const playerInfo = registeredMap.get(lowerHandle);
-    if (!playerInfo || playerInfo.is_banned) return; // Skip non-registered or banned players
+    if (!playerInfo || playerInfo.is_banned) return;
 
     const tourneyInfo = filteredTourneys.find(t => t.id === st.tournament_id);
     const eventName = tourneyInfo ? tourneyInfo.name : 'Tournament';
@@ -343,10 +353,8 @@ export async function getLeaderboardData(eventType: 'all' | 'tuesday' | 'friday'
     });
   });
 
-  // Convert map to sorted array
   const leaderboardList = Array.from(playerStats.values());
 
-  // Tie-breaker sorting
   leaderboardList.sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
     if (b.firstCount !== a.firstCount) return b.firstCount - a.firstCount;
