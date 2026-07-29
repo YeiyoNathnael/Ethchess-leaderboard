@@ -90,7 +90,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Save tournament standings to DB
-  const now = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString().slice(0, 10);
   await saveTournamentResults(
     {
       url_slug: slug,
