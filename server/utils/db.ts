@@ -191,18 +191,18 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
 
   // 1. Update memory store
   for (const p of newPlayers) {
-    const cleanHandle = p.chesscom_username.trim();
+    const cleanHandle = (p.chesscom_username || '').trim();
     if (!cleanHandle) continue;
 
     const existing = memoryPlayers.find(mp => mp.chesscom_username.toLowerCase() === cleanHandle.toLowerCase());
     if (existing) {
-      existing.name = p.name;
-      existing.email = p.email;
+      existing.name = p.name || existing.name || '';
+      existing.email = p.email || existing.email || '';
     } else {
       memoryPlayers.push({
         id: 'usr-' + Math.random().toString(36).substring(2, 10),
-        name: p.name,
-        email: p.email,
+        name: p.name || '',
+        email: p.email || '',
         chesscom_username: cleanHandle,
         is_verified: 1,
         is_banned: 0,
@@ -220,7 +220,13 @@ export async function addOrUpdatePlayers(newPlayers: { name: string; email: stri
       const statements = chunk.map(p => ({
         sql: `INSERT OR REPLACE INTO players (id, name, email, chesscom_username, is_verified, is_banned, created_at)
               VALUES (?, ?, ?, ?, 1, 0, ?)`,
-        args: [p.id, p.name, p.email, p.chesscom_username, now]
+        args: [
+          p.id || ('usr-' + Math.random().toString(36).substring(2, 10)),
+          p.name || '',
+          p.email || '',
+          p.chesscom_username || '',
+          p.created_at || now
+        ]
       }));
 
       try {
@@ -240,6 +246,7 @@ export async function saveTournamentResults(
 ): Promise<void> {
   const client = await getDbClient();
   const tourneyId = 'tourney-' + Date.now();
+  const now = new Date().toISOString().split('T')[0];
 
   memoryTournaments.push({ ...tournament, id: tourneyId });
   standings.forEach(st => {
@@ -254,7 +261,15 @@ export async function saveTournamentResults(
     const tourneyStmt = {
       sql: `INSERT OR REPLACE INTO tournaments (id, url_slug, name, event_type, rounds_count, sync_date, season_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [tourneyId, tournament.url_slug, tournament.name, tournament.event_type, tournament.rounds_count, tournament.sync_date, tournament.season_id]
+      args: [
+        tourneyId,
+        tournament.url_slug || '',
+        tournament.name || '',
+        tournament.event_type || 'tuesday',
+        tournament.rounds_count || 9,
+        tournament.sync_date || now,
+        tournament.season_id || 'season-1'
+      ]
     };
 
     const standingStmts = standings.map(st => ({
@@ -263,13 +278,13 @@ export async function saveTournamentResults(
       args: [
         'st-' + Math.random().toString(36).substring(2, 9),
         tourneyId,
-        st.player_username,
-        st.rank,
-        st.swiss_points,
-        st.rounds_played,
-        st.rank_points,
-        st.participation_points,
-        st.total_points
+        st.player_username || '',
+        st.rank || 0,
+        st.swiss_points || 0,
+        st.rounds_played || 0,
+        st.rank_points || 0,
+        st.participation_points || 0,
+        st.total_points || 0
       ]
     }));
 

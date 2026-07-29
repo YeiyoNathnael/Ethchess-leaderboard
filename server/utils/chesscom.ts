@@ -25,23 +25,32 @@ export interface FetchTournamentResult {
 
 /**
  * Extracts tournament ID or slug from any Chess.com tournament URL format.
+ * Robustly handles trailing slashes, hash anchors, and query parameters.
  * Examples:
- * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
- * - "https://www.chess.com/play/tournament/6629639" -> "6629639"
+ * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1/" -> "ethchess-tuesday-season1-r1"
+ * - "https://www.chess.com/play/tournament/6629639?ref=1#" -> "6629639"
  * - "ethchess-tuesday" -> "ethchess-tuesday"
  */
 export function extractTournamentSlug(urlOrSlug: string): string {
+  if (!urlOrSlug) return '';
   let cleaned = urlOrSlug.trim();
+
+  // Strip query strings, hash fragments, and trailing slashes first
+  cleaned = cleaned.split('?')[0].split('#')[0].replace(/\/+$/, '');
+
   if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
     const urlParts = cleaned.split('/tournament/');
-    if (urlParts.length > 1) {
-      cleaned = urlParts[1].split('?')[0].split('#')[0].replace(/\/$/, '');
+    if (urlParts.length > 1 && urlParts[1].trim()) {
+      cleaned = urlParts[1].replace(/\/+$/, '');
     } else {
-      const slashParts = cleaned.split('/');
-      cleaned = slashParts[slashParts.length - 1].split('?')[0].split('#')[0];
+      const slashParts = cleaned.split('/').filter(Boolean);
+      if (slashParts.length > 0) {
+        cleaned = slashParts[slashParts.length - 1];
+      }
     }
   }
-  return cleaned;
+
+  return cleaned.trim();
 }
 
 /**
@@ -49,6 +58,10 @@ export function extractTournamentSlug(urlOrSlug: string): string {
  */
 export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchTournamentResult> {
   const slug = extractTournamentSlug(urlOrSlug);
+  if (!slug) {
+    throw new Error('Invalid tournament link or slug provided.');
+  }
+
   const apiUrl = `https://api.chess.com/pub/tournament/${slug}`;
 
   const headers = {
