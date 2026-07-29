@@ -10,7 +10,7 @@ export interface ChessComTournamentResponse {
   name: string;
   url: string;
   status: string;
-  rounds: (string | { url: string })[];
+  rounds: any[];
   settings?: {
     total_rounds?: number;
     type?: string;
@@ -18,50 +18,34 @@ export interface ChessComTournamentResponse {
   players?: ChessComPlayer[];
 }
 
-export interface FetchTournamentResult {
-  slug: string;
-  data: ChessComTournamentResponse;
-}
-
 /**
  * Extracts tournament ID or slug from any Chess.com tournament URL format.
- * Robustly handles trailing slashes, hash anchors, and query parameters.
  * Examples:
- * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1/" -> "ethchess-tuesday-season1-r1"
- * - "https://www.chess.com/play/tournament/6629639?ref=1#" -> "6629639"
+ * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
+ * - "https://www.chess.com/play/tournament/6629639" -> "6629639"
  * - "ethchess-tuesday" -> "ethchess-tuesday"
  */
 export function extractTournamentSlug(urlOrSlug: string): string {
-  if (!urlOrSlug) return '';
   let cleaned = urlOrSlug.trim();
-
-  // Strip query strings, hash fragments, and trailing slashes first
-  cleaned = cleaned.split('?')[0].split('#')[0].replace(/\/+$/, '');
-
   if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
     const urlParts = cleaned.split('/tournament/');
-    if (urlParts.length > 1 && urlParts[1].trim()) {
-      cleaned = urlParts[1].replace(/\/+$/, '');
+    const afterTournament = urlParts[1];
+    if (afterTournament) {
+      cleaned = afterTournament.split('?')[0]?.split('#')[0]?.replace(/\/$/, '') ?? '';
     } else {
-      const slashParts = cleaned.split('/').filter(Boolean);
-      if (slashParts.length > 0) {
-        cleaned = slashParts[slashParts.length - 1];
-      }
+      const slashParts = cleaned.split('/');
+      const lastPart = slashParts[slashParts.length - 1];
+      cleaned = lastPart?.split('?')[0]?.split('#')[0]?.replace(/\/$/, '') ?? '';
     }
   }
-
-  return cleaned.trim();
+  return cleaned;
 }
 
 /**
  * Fetches real tournament data and standings from Chess.com Public API
  */
-export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchTournamentResult> {
+export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
-  if (!slug) {
-    throw new Error('Invalid tournament link or slug provided.');
-  }
-
   const apiUrl = `https://api.chess.com/pub/tournament/${slug}`;
 
   const headers = {
@@ -75,7 +59,7 @@ export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchT
     throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}". Verify the tournament slug/ID exists and is public.`);
   }
 
-  const data = (await response.json()) as ChessComTournamentResponse;
+  const data: ChessComTournamentResponse = await response.json();
   let rawPlayers: ChessComPlayer[] = data.players || [];
 
   // If tournament has round details, fetch the latest round group data to get final points & standings
@@ -87,14 +71,14 @@ export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchT
       if (roundUrlStr) {
         const roundRes = await fetch(roundUrlStr, { headers });
         if (roundRes.ok) {
-          const roundData = (await roundRes.json()) as { groups?: (string | { url: string })[] };
+          const roundData = await roundRes.json();
           if (roundData.groups && Array.isArray(roundData.groups) && roundData.groups.length > 0) {
             const firstGroup = roundData.groups[0];
             const groupUrlStr = typeof firstGroup === 'string' ? firstGroup : firstGroup?.url;
             if (groupUrlStr) {
               const groupRes = await fetch(groupUrlStr, { headers });
               if (groupRes.ok) {
-                const groupData = (await groupRes.json()) as { players?: ChessComPlayer[] };
+                const groupData = await groupRes.json();
                 if (groupData.players && Array.isArray(groupData.players) && groupData.players.length > 0) {
                   rawPlayers = groupData.players;
                 }
@@ -103,7 +87,7 @@ export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchT
           }
         }
       }
-    } catch (err: unknown) {
+    } catch (err) {
       console.warn('Could not fetch round group sub-details, falling back to top-level players:', err);
     }
   }
