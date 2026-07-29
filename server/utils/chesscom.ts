@@ -10,12 +10,17 @@ export interface ChessComTournamentResponse {
   name: string;
   url: string;
   status: string;
-  rounds: any[];
+  rounds: (string | { url: string })[];
   settings?: {
     total_rounds?: number;
     type?: string;
   };
   players?: ChessComPlayer[];
+}
+
+export interface FetchTournamentResult {
+  slug: string;
+  data: ChessComTournamentResponse;
 }
 
 /**
@@ -42,7 +47,7 @@ export function extractTournamentSlug(urlOrSlug: string): string {
 /**
  * Fetches real tournament data and standings from Chess.com Public API
  */
-export async function fetchChessComTournament(urlOrSlug: string) {
+export async function fetchChessComTournament(urlOrSlug: string): Promise<FetchTournamentResult> {
   const slug = extractTournamentSlug(urlOrSlug);
   const apiUrl = `https://api.chess.com/pub/tournament/${slug}`;
 
@@ -57,25 +62,26 @@ export async function fetchChessComTournament(urlOrSlug: string) {
     throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}". Verify the tournament slug/ID exists and is public.`);
   }
 
-  const data: ChessComTournamentResponse = await response.json();
+  const data = (await response.json()) as ChessComTournamentResponse;
   let rawPlayers: ChessComPlayer[] = data.players || [];
 
   // If tournament has round details, fetch the latest round group data to get final points & standings
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
     try {
       const lastRoundUrl = data.rounds[data.rounds.length - 1];
-      const roundUrlStr = typeof lastRoundUrl === 'string' ? lastRoundUrl : lastRoundUrl.url;
+      const roundUrlStr = typeof lastRoundUrl === 'string' ? lastRoundUrl : lastRoundUrl?.url;
 
       if (roundUrlStr) {
         const roundRes = await fetch(roundUrlStr, { headers });
         if (roundRes.ok) {
-          const roundData = await roundRes.json();
+          const roundData = (await roundRes.json()) as { groups?: (string | { url: string })[] };
           if (roundData.groups && Array.isArray(roundData.groups) && roundData.groups.length > 0) {
-            const groupUrlStr = typeof roundData.groups[0] === 'string' ? roundData.groups[0] : roundData.groups[0].url;
+            const firstGroup = roundData.groups[0];
+            const groupUrlStr = typeof firstGroup === 'string' ? firstGroup : firstGroup?.url;
             if (groupUrlStr) {
               const groupRes = await fetch(groupUrlStr, { headers });
               if (groupRes.ok) {
-                const groupData = await groupRes.json();
+                const groupData = (await groupRes.json()) as { players?: ChessComPlayer[] };
                 if (groupData.players && Array.isArray(groupData.players) && groupData.players.length > 0) {
                   rawPlayers = groupData.players;
                 }
@@ -84,7 +90,7 @@ export async function fetchChessComTournament(urlOrSlug: string) {
           }
         }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.warn('Could not fetch round group sub-details, falling back to top-level players:', err);
     }
   }
