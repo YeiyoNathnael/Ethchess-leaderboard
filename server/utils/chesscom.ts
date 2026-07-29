@@ -22,29 +22,31 @@ export interface ChessComTournamentResponse {
 /**
  * Extracts tournament ID or slug from any Chess.com tournament URL format.
  * Examples:
- * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
+ * - "www.chess.com/tournament/ethchess-tuesday-6629639" -> "ethchess-tuesday-6629639"
  * - "https://www.chess.com/tournament/live/ethchess-tuesdays-6648933" -> "ethchess-tuesdays-6648933"
- * - "https://www.chess.com/play/tournament/6629639" -> "6629639"
- * - "ethchess-tuesday" -> "ethchess-tuesday"
+ * - "ethchess-tuesday-6629639" -> "ethchess-tuesday-6629639"
  */
 export function extractTournamentSlug(urlOrSlug: string): string {
   let cleaned = urlOrSlug.trim();
-  if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
-    const urlParts = cleaned.split('/tournament/');
-    const afterTournament = urlParts[1];
-    if (afterTournament) {
-      cleaned = afterTournament.split('?')[0]?.split('#')[0]?.replace(/\/$/, '') ?? '';
-    } else {
-      const slashParts = cleaned.split('/');
-      const lastPart = slashParts[slashParts.length - 1];
-      cleaned = lastPart?.split('?')[0]?.split('#')[0]?.replace(/\/$/, '') ?? '';
-    }
+  
+  // Strip protocol and domain if present
+  cleaned = cleaned
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/^chess\.com\//i, '');
+
+  // Handle /tournament/ or /tournament/live/
+  if (cleaned.includes('tournament/')) {
+    cleaned = cleaned.split('tournament/')[1] || cleaned;
   }
 
   // Remove leading "live/" prefix if present
   if (cleaned.startsWith('live/')) {
     cleaned = cleaned.substring(5);
   }
+
+  // Strip query parameters and trailing slashes
+  cleaned = cleaned.split('?')[0].split('#')[0].replace(/\/$/, '');
 
   return cleaned;
 }
@@ -66,7 +68,10 @@ export async function fetchChessComTournament(urlOrSlug: string) {
   const response = await fetch(apiUrl, { headers });
 
   if (!response.ok) {
-    throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}". Verify the tournament slug/ID exists and is public.`);
+    if (response.status === 404) {
+      throw new Error(`Chess.com Public API returned HTTP 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE CLUB EVENT INPUT' tab to submit live club standings!`);
+    }
+    throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}".`);
   }
 
   const data: ChessComTournamentResponse = await response.json();
@@ -74,7 +79,7 @@ export async function fetchChessComTournament(urlOrSlug: string) {
 
   const playerRoundsMap = new Map<string, number>();
 
-  // 1. Scan round endpoints to count exact rounds played per player
+  // 1. Safely scan round endpoints to count exact rounds played per player
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
     for (const roundItem of data.rounds) {
       const roundUrlStr = typeof roundItem === 'string' ? roundItem : roundItem?.url;
@@ -98,7 +103,7 @@ export async function fetchChessComTournament(urlOrSlug: string) {
       }
     }
 
-    // 2. Fetch groups from the final completed round to get final Swiss scores for all participants
+    // 2. Safely fetch groups from the final completed round to get final Swiss scores for all participants
     try {
       const allGroupPlayers: ChessComPlayer[] = [];
       const lastRoundUrl = data.rounds[data.rounds.length - 1];
@@ -113,13 +118,15 @@ export async function fetchChessComTournament(urlOrSlug: string) {
             for (const groupItem of roundData.groups) {
               const groupUrlStr = typeof groupItem === 'string' ? groupItem : groupItem?.url;
               if (groupUrlStr) {
-                const groupRes = await fetch(groupUrlStr, { headers });
-                if (groupRes.ok) {
-                  const groupData = await groupRes.json();
-                  if (groupData.players && Array.isArray(groupData.players)) {
-                    allGroupPlayers.push(...groupData.players);
+                try {
+                  const groupRes = await fetch(groupUrlStr, { headers });
+                  if (groupRes.ok) {
+                    const groupData = await groupRes.json();
+                    if (groupData.players && Array.isArray(groupData.players)) {
+                      allGroupPlayers.push(...groupData.players);
+                    }
                   }
-                }
+                } catch (e) {}
               }
             }
           }

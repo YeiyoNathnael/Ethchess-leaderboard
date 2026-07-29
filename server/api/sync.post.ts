@@ -54,7 +54,7 @@ export default defineEventHandler(async (event) => {
     } catch (err: any) {
       throw createError({
         statusCode: 404,
-        statusMessage: `Chess.com Public API returned 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE CLUB EVENT INPUT' tab to submit live club standings!`
+        statusMessage: err.message || `Chess.com Public API returned an error for "${slug}".`
       });
     }
 
