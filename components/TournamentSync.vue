@@ -2,12 +2,19 @@
   <div class="sync-card editorial-card">
     <div class="sync-header">
       <div>
-        <h3 class="sync-title">CHESS.COM TOURNAMENT LINK SYNC ENGINE</h3>
-        <p class="sync-sub">Sync public daily tournaments or enter live/club event standings to compute EthChess F1 points</p>
+        <h3 class="sync-title">CHESS.COM TOURNAMENT SYNC ENGINE</h3>
+        <p class="sync-sub">Sync Chess.com official CSV export files (.csv), public URL slugs, or paste standings</p>
       </div>
       
       <!-- Mode Toggle -->
       <div class="mode-toggle">
+        <button 
+          type="button"
+          :class="['mode-btn', { active: mode === 'csv' }]"
+          @click="mode = 'csv'"
+        >
+          UPLOAD CHESS.COM CSV
+        </button>
         <button 
           type="button"
           :class="['mode-btn', { active: mode === 'url' }]"
@@ -20,15 +27,71 @@
           :class="['mode-btn', { active: mode === 'manual' }]"
           @click="mode = 'manual'"
         >
-          LIVE / OFFLINE INPUT
+          PASTE HANDLES
         </button>
       </div>
     </div>
 
-    <!-- Mode 1: Public URL Sync -->
-    <form v-if="mode === 'url'" @submit.prevent="syncTournament" class="sync-form">
+    <!-- Mode 1: Upload Official Chess.com CSV Export File -->
+    <div v-if="mode === 'csv'" class="csv-section">
+      <div class="info-banner">
+        <strong>RECOMMENDED FOR PERFECT STANDINGS:</strong> Upload the official Chess.com CSV export file (e.g. <code>ethchess-tuesdays-6648933.csv</code>). This extracts 100% of all participants, exact Swiss scores, and actual rounds played.
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">EVENT CATEGORY</label>
+          <select v-model="eventType" class="form-select">
+            <option value="tuesday">EthChess Tuesday</option>
+            <option value="friday">Freestyle Friday</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">TOURNAMENT DISPLAY NAME</label>
+          <input 
+            v-model="csvTournamentName" 
+            type="text" 
+            placeholder="e.g. EthChess Tuesday #2"
+            class="form-input"
+          />
+        </div>
+      </div>
+
+      <!-- Dropzone -->
+      <div 
+        class="dropzone"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="handleCsvDrop"
+        :class="{ dragging: isDragging }"
+        @click="$refs.csvFileInput.click()"
+      >
+        <input 
+          type="file" 
+          ref="csvFileInput" 
+          accept=".csv"
+          class="hidden-input"
+          @change="handleCsvSelect"
+        />
+        <div class="drop-content">
+          <p class="drop-text">DRAG & DROP CHESS.COM CSV FILE HERE, OR <span class="browse-link">BROWSE FILES</span></p>
+          <span class="file-hint">Supports official Chess.com export format (`Username`, `Score`, `Rk`, `RND1`...`RND9`)</span>
+        </div>
+      </div>
+
+      <div v-if="parsedCsvItems.length > 0" class="csv-confirm-bar">
+        <span>FOUND <strong>{{ parsedCsvItems.length }}</strong> PARTICIPANT STANDINGS IN CSV FILE</span>
+        <button class="btn-primary" :disabled="isLoading" @click="submitCsvStandings">
+          {{ isLoading ? 'CALCULATING & SAVING...' : 'CONFIRM & SAVE CSV TOURNAMENT' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Mode 2: Public URL Sync -->
+    <form v-else-if="mode === 'url'" @submit.prevent="syncTournament" class="sync-form">
       <div class="info-banner" v-if="networkWarning">
-        <strong>NETWORK FIREWALL NOTICE:</strong> If your local network/ISP blocks <code>api.chess.com</code>, deploy to Vercel (cloud environment) or use the <strong>LIVE / OFFLINE INPUT</strong> tab.
+        <strong>NETWORK FIREWALL NOTICE:</strong> Local network firewall blocked <code>api.chess.com</code>. Use the <strong>UPLOAD CHESS.COM CSV</strong> tab above or deploy to Vercel.
       </div>
 
       <div class="form-grid">
@@ -37,7 +100,7 @@
           <input 
             v-model="tournamentUrl" 
             type="text" 
-            placeholder="e.g. ethchess-tuesday-6629639 or full URL"
+            placeholder="e.g. ethchess-tuesdays-6648933 or full URL"
             class="form-input"
             required
           />
@@ -56,7 +119,7 @@
           <input 
             v-model="customName" 
             type="text" 
-            placeholder="e.g. EthChess Tuesday #1"
+            placeholder="e.g. EthChess Tuesday #2"
             class="form-input"
           />
         </div>
@@ -69,10 +132,10 @@
       </div>
     </form>
 
-    <!-- Mode 2: Live Club / Offline Quick Input -->
+    <!-- Mode 3: Live Club / Offline Quick Input -->
     <form v-else @submit.prevent="submitManualStandings" class="sync-form">
       <div class="info-banner">
-        <strong>BYPASS FIREWALL & LIVE LIMITS:</strong> Paste player handles in rank order below. This calculates F1 placement points and saves directly to Turso DB without needing an external network request to Chess.com.
+        <strong>PASTE STANDINGS:</strong> Paste player handles in rank order below.
       </div>
 
       <div class="form-grid">
@@ -81,7 +144,7 @@
           <input 
             v-model="manualName" 
             type="text" 
-            placeholder="e.g. EthChess Tuesday #1 (6629639)"
+            placeholder="e.g. EthChess Tuesday #2"
             class="form-input"
             required
           />
@@ -109,11 +172,11 @@
       </div>
 
       <div class="form-group full-width">
-        <label class="form-label">PASTE FINISH STANDINGS (HANDLES IN RANK ORDER, ONE PER LINE OR COMMA SEPARATED)</label>
+        <label class="form-label">PASTE FINISH STANDINGS (HANDLES IN RANK ORDER, ONE PER LINE)</label>
         <textarea 
           v-model="manualHandlesText"
           rows="6"
-          placeholder="e.g.&#10;xdanielb&#10;mrhn11&#10;fula_710&#10;razak-basit&#10;yeabx&#10;pattydaty&#10;josh_147&#10;tebareka"
+          placeholder="e.g.&#10;Josephkifle2500&#10;xDanielB&#10;binyamash&#10;nxeno&#10;josh_147"
           class="form-textarea"
           required
         ></textarea>
@@ -140,6 +203,7 @@
             <th>RANK</th>
             <th>PLAYER HANDLE</th>
             <th>SWISS SCORE</th>
+            <th>ROUNDS PLAYED</th>
             <th>F1 PTS</th>
             <th>PART. BONUS</th>
             <th>TOTAL SCORE</th>
@@ -150,6 +214,7 @@
             <td>#{{ item.rank }}</td>
             <td class="handle-txt">@{{ item.username }}</td>
             <td>{{ item.swissPoints }}</td>
+            <td>{{ item.roundsPlayed }}/9</td>
             <td>{{ item.rankPoints }} pts</td>
             <td>+{{ item.participationPoints }} pts</td>
             <td class="total-txt">{{ item.totalPoints }} PTS</td>
@@ -162,22 +227,121 @@
 
 <script setup>
 import { ref } from 'vue';
+import Papa from 'papaparse';
 
 const emit = defineEmits(['tournament-synced']);
 
-const mode = ref('url');
+const mode = ref('csv');
 const tournamentUrl = ref('');
 const eventType = ref('tuesday');
 const customName = ref('');
+const csvTournamentName = ref('');
 const manualName = ref('');
 const manualRounds = ref(9);
 const manualHandlesText = ref('');
 const networkWarning = ref(false);
 
+const isDragging = ref(false);
+const csvFileInput = ref(null);
+const parsedCsvItems = ref([]);
+
 const isLoading = ref(false);
 const statusMessage = ref('');
 const statusType = ref('info');
 const previewStandings = ref([]);
+
+const handleCsvSelect = (e) => {
+  const file = e.target.files[0];
+  if (file) parseCsvFile(file);
+};
+
+const handleCsvDrop = (e) => {
+  isDragging.value = false;
+  const file = e.dataTransfer.files[0];
+  if (file) parseCsvFile(file);
+};
+
+const parseCsvFile = (file) => {
+  statusMessage.value = '';
+  parsedCsvItems.value = [];
+
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      const items = [];
+      results.data.forEach((row, idx) => {
+        const username = row['Username'] || row['username'] || row['User Name'] || '';
+        const scoreVal = row['Score'] || row['score'] || row['Points'] || '0';
+        const score = parseFloat(scoreVal);
+
+        // Count non-empty, non-U-- round entries
+        let roundsCount = 0;
+        for (let r = 1; r <= 15; r++) {
+          const val = row[`RND${r}`] || row[`Rnd${r}`] || row[`Round${r}`];
+          if (val && typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed && trimmed !== 'U--' && trimmed !== '-') {
+              roundsCount++;
+            }
+          }
+        }
+
+        if (username && username.trim()) {
+          items.push({
+            username: username.trim(),
+            swissPoints: isNaN(score) ? 0 : score,
+            roundsPlayed: roundsCount || 9
+          });
+        }
+      });
+
+      parsedCsvItems.value = items;
+      if (!csvTournamentName.value) {
+        csvTournamentName.value = file.name.replace(/\.[^/.]+$/, '');
+      }
+
+      if (items.length > 0) {
+        statusMessage.value = `Parsed ${items.length} participant standings from CSV file. Click "CONFIRM & SAVE CSV TOURNAMENT" below.`;
+        statusType.value = 'success';
+      } else {
+        statusMessage.value = 'Could not find participant rows in CSV file. Ensure spreadsheet has a "Username" column.';
+        statusType.value = 'error';
+      }
+    }
+  });
+};
+
+const submitCsvStandings = async () => {
+  if (parsedCsvItems.value.length === 0) return;
+
+  isLoading.value = true;
+  statusMessage.value = '';
+  previewStandings.value = [];
+
+  try {
+    const res = await $fetch('/api/sync', {
+      method: 'POST',
+      body: {
+        eventType: eventType.value,
+        name: csvTournamentName.value.trim() || 'EthChess Tournament',
+        csvStandings: parsedCsvItems.value
+      }
+    });
+
+    statusMessage.value = res.message;
+    statusType.value = 'success';
+    previewStandings.value = res.standingsPreview || [];
+    parsedCsvItems.value = [];
+    emit('tournament-synced');
+  } catch (err) {
+    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to save CSV tournament.';
+    statusMessage.value = detailedMsg;
+    statusType.value = 'error';
+  } finally {
+    isLoading.value = false;
+  }
+};
 
 const syncTournament = async () => {
   if (!tournamentUrl.value.trim()) return;
@@ -206,7 +370,7 @@ const syncTournament = async () => {
     
     if (rawMsg.includes('fetch failed') || rawMsg.includes('ECONNRESET')) {
       networkWarning.value = true;
-      statusMessage.value = 'Local network firewall blocked outbound connection to api.chess.com. Either deploy to Vercel (cloud environment) or use the LIVE / OFFLINE INPUT tab above.';
+      statusMessage.value = 'Local network firewall blocked outbound connection to api.chess.com. Use the UPLOAD CHESS.COM CSV tab above.';
     } else {
       statusMessage.value = rawMsg;
     }
@@ -332,6 +496,13 @@ const submitManualStandings = async () => {
   margin-bottom: 16px;
 }
 
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -368,6 +539,52 @@ const submitManualStandings = async () => {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.dropzone {
+  border: 1px dashed #D1D5DB;
+  padding: 28px;
+  text-align: center;
+  background: #FAFAFA;
+  cursor: pointer;
+  border-radius: var(--radius-sharp);
+  transition: all 0.15s ease;
+}
+
+.dropzone:hover, .dropzone.dragging {
+  border-color: var(--color-jade);
+  background: rgba(0, 168, 107, 0.04);
+}
+
+.hidden-input {
+  display: none;
+}
+
+.drop-text {
+  font-family: var(--font-title);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-dark);
+  margin-bottom: 4px;
+}
+
+.browse-link {
+  color: var(--color-jade);
+  text-decoration: underline;
+}
+
+.file-hint {
+  font-size: 0.78rem;
+  color: var(--color-dark-muted);
+}
+
+.csv-confirm-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  font-family: var(--font-title);
+  font-size: 0.75rem;
 }
 
 .status-box {
@@ -434,7 +651,7 @@ const submitManualStandings = async () => {
 .total-txt { font-family: var(--font-title); font-weight: 700; color: var(--color-jade); }
 
 @media (max-width: 900px) {
-  .form-grid {
+  .form-grid, .form-grid-2 {
     grid-template-columns: 1fr;
   }
 }

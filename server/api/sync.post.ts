@@ -4,7 +4,7 @@ import { processTournamentStandings } from '../utils/scoring';
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
-  const { url, eventType, name, manualHandles, roundsPlayed } = body;
+  const { url, eventType, name, manualHandles, roundsPlayed, csvStandings } = body;
 
   const selectedEventType = eventType === 'friday' ? 'friday' : 'tuesday';
 
@@ -30,11 +30,22 @@ export default defineEventHandler(async (event) => {
   });
 
   let tournamentName = name || `EthChess ${selectedEventType === 'tuesday' ? 'Tuesday' : 'Friday'}`;
-  let slug = 'live-event-' + Date.now();
+  let slug = 'csv-event-' + Date.now();
   let rawStandings: Array<{ username: string; rank: number; swissPoints: number; roundsPlayed: number }> = [];
 
-  // Mode 2: Live Club Event Manual Handles Input (for /play/tournament/ live events)
-  if (Array.isArray(manualHandles) && manualHandles.length > 0) {
+  // Mode A: Official Chess.com CSV Export Upload (100% Exact Standings & Scores)
+  if (Array.isArray(csvStandings) && csvStandings.length > 0) {
+    tournamentName = name || `EthChess ${selectedEventType === 'tuesday' ? 'Tuesday' : 'Friday'}`;
+    
+    rawStandings = csvStandings.map((item, idx) => ({
+      username: String(item.username).trim(),
+      rank: idx + 1,
+      swissPoints: parseFloat(item.swissPoints ?? item.score ?? 0),
+      roundsPlayed: parseInt(item.roundsPlayed ?? item.roundsCount ?? 9)
+    }));
+  }
+  // Mode B: Live Club Event Manual Handles Input
+  else if (Array.isArray(manualHandles) && manualHandles.length > 0) {
     tournamentName = name || `EthChess Live ${selectedEventType === 'tuesday' ? 'Tuesday' : 'Friday'}`;
     const totalRounds = roundsPlayed || 9;
 
@@ -45,7 +56,7 @@ export default defineEventHandler(async (event) => {
       roundsPlayed: totalRounds
     }));
   } 
-  // Mode 1: Public Chess.com URL Sync
+  // Mode C: Public Chess.com URL Sync
   else if (url) {
     slug = extractTournamentSlug(url);
     let slugResult;
@@ -76,7 +87,7 @@ export default defineEventHandler(async (event) => {
       roundsPlayed: p.roundsPlayed ?? (data.rounds ? data.rounds.length : (data.settings?.total_rounds || 9))
     }));
   } else {
-    throw createError({ statusCode: 400, statusMessage: 'Either a Tournament URL or Live Event Handles list is required.' });
+    throw createError({ statusCode: 400, statusMessage: 'Either a CSV file, Tournament URL, or Live Event Handles list is required.' });
   }
 
   // Calculate official EthChess League points (filtering registered roster only)
