@@ -2,7 +2,8 @@
   <header class="app-header">
     <div class="header-container">
       <div class="brand-area" @click="$emit('change-tab', 'overall')">
-        <EthChessLogo :size="34" class="header-logo" />
+        <EthChessLogo :size="70" class="header-logo" />
+        
         <div class="brand-text">
           <div class="brand-title-row">
             <h1 class="brand-title">ETHCHESS™</h1>
