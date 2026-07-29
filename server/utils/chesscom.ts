@@ -53,8 +53,8 @@ export function extractTournamentSlug(urlOrSlug: string): string {
 
 /**
  * Fetches real tournament data and standings from Chess.com Public API.
- * Iterates across ALL round endpoints and round groups to retrieve 100% of participants,
- * calculates exact cumulative Swiss scores, and tracks individual rounds played.
+ * Iterates backwards from final round down to round 1 to harvest 100% of participants,
+ * capture exact accumulated Swiss scores at their last played round, and calculate roundsPlayed.
  */
 export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
@@ -69,7 +69,7 @@ export async function fetchChessComTournament(urlOrSlug: string) {
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(`Chess.com Public API returned HTTP 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE / OFFLINE INPUT' tab to submit live club standings!`);
+      throw new Error(`Chess.com Public API returned HTTP 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE / OFFLINE INPUT' or 'UPLOAD CHESS.COM CSV' tab!`);
     }
     throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}".`);
   }
@@ -78,21 +78,9 @@ export async function fetchChessComTournament(urlOrSlug: string) {
   const playerRoundsMap = new Map<string, number>();
   const playerMap = new Map<string, ChessComPlayer>();
 
-  // 1. Initial seed from top-level data.players
-  if (data.players && Array.isArray(data.players)) {
-    data.players.forEach(p => {
-      if (p.username) {
-        const lower = p.username.toLowerCase();
-        playerMap.set(lower, {
-          username: p.username,
-          points: p.points ?? p.score ?? 0,
-          status: p.status
-        });
-      }
-    });
-  }
+  const totalRounds = data.rounds ? data.rounds.length : (data.settings?.total_rounds || 9);
 
-  // 2. Iterate across ALL rounds and ALL groups to capture every participant and their max cumulative Swiss score
+  // 1. Scan round appearance endpoints to count exact rounds played per player
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
     for (const roundItem of data.rounds) {
       const roundUrlStr = typeof roundItem === 'string' ? roundItem : roundItem?.url;
@@ -103,7 +91,6 @@ export async function fetchChessComTournament(urlOrSlug: string) {
         if (!rRes.ok) continue;
         const rData = await rRes.json();
 
-        // Track players in this round
         if (rData.players && Array.isArray(rData.players)) {
           rData.players.forEach((p: any) => {
             if (p.username) {
@@ -112,8 +99,23 @@ export async function fetchChessComTournament(urlOrSlug: string) {
             }
           });
         }
+      } catch (e) {}
+    }
+  }
 
-        // Fetch group details for Swiss score extraction
+  // 2. Backward round iteration: process final round down to round 1
+  // First time a player is seen in the backwards walk corresponds to their last played round!
+  if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
+    for (let rIdx = data.rounds.length - 1; rIdx >= 0; rIdx--) {
+      const roundItem = data.rounds[rIdx];
+      const roundUrlStr = typeof roundItem === 'string' ? roundItem : roundItem?.url;
+      if (!roundUrlStr) continue;
+
+      try {
+        const rRes = await fetch(roundUrlStr, { headers });
+        if (!rRes.ok) continue;
+        const rData = await rRes.json();
+
         if (rData.groups && Array.isArray(rData.groups) && rData.groups.length > 0) {
           for (const groupItem of rData.groups) {
             const groupUrlStr = typeof groupItem === 'string' ? groupItem : groupItem?.url;
@@ -132,10 +134,11 @@ export async function fetchChessComTournament(urlOrSlug: string) {
 
                   const existing = playerMap.get(lower);
                   if (existing) {
-                    existing.username = p.username; // preserve casing
                     existing.points = Math.max(existing.points ?? 0, pt);
+                    existing.username = p.username;
                     if (p.status) existing.status = p.status;
                   } else {
+                    // First time seen in backwards walk!
                     playerMap.set(lower, {
                       username: p.username,
                       points: pt,
@@ -144,24 +147,35 @@ export async function fetchChessComTournament(urlOrSlug: string) {
                   }
                 });
               }
-            } catch (e) {
-              // Ignore group fetch failures
-            }
+            } catch (e) {}
           }
         }
-      } catch (e) {
-        // Ignore round fetch failures
-      }
+      } catch (e) {}
     }
   }
 
-  // 3. Build final rawPlayers array with individual roundsPlayed counts
-  const totalRoundsCount = data.rounds ? data.rounds.length : 9;
+  // 3. Fallback: Seed any extra players from top-level data.players
+  if (data.players && Array.isArray(data.players)) {
+    data.players.forEach(p => {
+      if (p.username) {
+        const lower = p.username.toLowerCase();
+        if (!playerMap.has(lower)) {
+          playerMap.set(lower, {
+            username: p.username,
+            points: p.points ?? p.score ?? 0,
+            status: p.status
+          });
+        }
+      }
+    });
+  }
+
+  // 4. Construct final rawPlayers array
   const rawPlayers: ChessComPlayer[] = Array.from(playerMap.values()).map(p => {
-    const lowerHandle = p.username.toLowerCase();
+    const lower = p.username.toLowerCase();
     return {
       ...p,
-      roundsPlayed: playerRoundsMap.get(lowerHandle) ?? totalRoundsCount
+      roundsPlayed: playerRoundsMap.get(lower) ?? (p.points && p.points > 0 ? totalRounds : 1)
     };
   });
 
