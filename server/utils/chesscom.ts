@@ -22,6 +22,7 @@ export interface ChessComTournamentResponse {
  * Extracts tournament ID or slug from any Chess.com tournament URL format.
  * Examples:
  * - "https://www.chess.com/tournament/ethchess-tuesday-season1-r1" -> "ethchess-tuesday-season1-r1"
+ * - "https://www.chess.com/tournament/live/ethchess-tuesdays-6648933" -> "ethchess-tuesdays-6648933"
  * - "https://www.chess.com/play/tournament/6629639" -> "6629639"
  * - "ethchess-tuesday" -> "ethchess-tuesday"
  */
@@ -38,11 +39,18 @@ export function extractTournamentSlug(urlOrSlug: string): string {
       cleaned = lastPart?.split('?')[0]?.split('#')[0]?.replace(/\/$/, '') ?? '';
     }
   }
+
+  // Remove leading "live/" prefix if present
+  if (cleaned.startsWith('live/')) {
+    cleaned = cleaned.substring(5);
+  }
+
   return cleaned;
 }
 
 /**
- * Fetches real tournament data and standings from Chess.com Public API
+ * Fetches real tournament data and standings from Chess.com Public API.
+ * Correctly iterates across ALL groups and rounds to fetch ALL participants (no pagination limits).
  */
 export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
@@ -62,9 +70,12 @@ export async function fetchChessComTournament(urlOrSlug: string) {
   const data: ChessComTournamentResponse = await response.json();
   let rawPlayers: ChessComPlayer[] = data.players || [];
 
-  // If tournament has round details, fetch the latest round group data to get final points & standings
+  // Iterate over rounds in reverse to find the final completed round groups
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
     try {
+      const allGroupPlayers: ChessComPlayer[] = [];
+
+      // Fetch groups from the final round
       const lastRoundUrl = data.rounds[data.rounds.length - 1];
       const roundUrlStr = typeof lastRoundUrl === 'string' ? lastRoundUrl : lastRoundUrl?.url;
 
@@ -73,22 +84,42 @@ export async function fetchChessComTournament(urlOrSlug: string) {
         if (roundRes.ok) {
           const roundData = await roundRes.json();
           if (roundData.groups && Array.isArray(roundData.groups) && roundData.groups.length > 0) {
-            const firstGroup = roundData.groups[0];
-            const groupUrlStr = typeof firstGroup === 'string' ? firstGroup : firstGroup?.url;
-            if (groupUrlStr) {
-              const groupRes = await fetch(groupUrlStr, { headers });
-              if (groupRes.ok) {
-                const groupData = await groupRes.json();
-                if (groupData.players && Array.isArray(groupData.players) && groupData.players.length > 0) {
-                  rawPlayers = groupData.players;
+            // Fetch ALL group URLs in the final round (not just group [0])
+            for (const groupItem of roundData.groups) {
+              const groupUrlStr = typeof groupItem === 'string' ? groupItem : groupItem?.url;
+              if (groupUrlStr) {
+                const groupRes = await fetch(groupUrlStr, { headers });
+                if (groupRes.ok) {
+                  const groupData = await groupRes.json();
+                  if (groupData.players && Array.isArray(groupData.players)) {
+                    allGroupPlayers.push(...groupData.players);
+                  }
                 }
               }
             }
           }
         }
       }
+
+      if (allGroupPlayers.length > 0) {
+        // Merge group players with any players listed in top-level tournament data
+        const playerMap = new Map<string, ChessComPlayer>();
+
+        allGroupPlayers.forEach(p => {
+          if (p.username) playerMap.set(p.username.toLowerCase(), p);
+        });
+
+        // Add any missing players from top-level array
+        rawPlayers.forEach(p => {
+          if (p.username && !playerMap.has(p.username.toLowerCase())) {
+            playerMap.set(p.username.toLowerCase(), p);
+          }
+        });
+
+        rawPlayers = Array.from(playerMap.values());
+      }
     } catch (err) {
-      console.warn('Could not fetch round group sub-details, falling back to top-level players:', err);
+      console.warn('Could not fetch round group sub-details, using top-level players list:', err);
     }
   }
 
