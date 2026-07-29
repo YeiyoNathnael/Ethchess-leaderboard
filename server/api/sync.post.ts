@@ -73,7 +73,7 @@ export default defineEventHandler(async (event) => {
       username: p.username,
       rank: idx + 1,
       swissPoints: p.points ?? p.score ?? 0,
-      roundsPlayed: data.rounds ? data.rounds.length : (data.settings?.total_rounds || 9)
+      roundsPlayed: p.roundsPlayed ?? (data.rounds ? data.rounds.length : (data.settings?.total_rounds || 9))
     }));
   } else {
     throw createError({ statusCode: 400, statusMessage: 'Either a Tournament URL or Live Event Handles list is required.' });
@@ -90,7 +90,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Save tournament standings to DB
-  const now = new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString().split('T')[0];
   await saveTournamentResults(
     {
       url_slug: slug,

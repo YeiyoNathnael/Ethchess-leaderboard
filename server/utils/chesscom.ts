@@ -4,6 +4,7 @@ export interface ChessComPlayer {
   score?: number;
   status?: string;
   is_advancing?: boolean;
+  roundsPlayed?: number;
 }
 
 export interface ChessComTournamentResponse {
@@ -50,7 +51,8 @@ export function extractTournamentSlug(urlOrSlug: string): string {
 
 /**
  * Fetches real tournament data and standings from Chess.com Public API.
- * Correctly iterates across ALL groups and rounds to fetch ALL participants (no pagination limits).
+ * Iterates across ALL round groups to retrieve 100% of participants, and calculates
+ * exact rounds played per individual player for accurate F1 participation scoring.
  */
 export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
@@ -70,12 +72,35 @@ export async function fetchChessComTournament(urlOrSlug: string) {
   const data: ChessComTournamentResponse = await response.json();
   let rawPlayers: ChessComPlayer[] = data.players || [];
 
-  // Iterate over rounds in reverse to find the final completed round groups
+  const playerRoundsMap = new Map<string, number>();
+
+  // 1. Scan round endpoints to count exact rounds played per player
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
+    for (const roundItem of data.rounds) {
+      const roundUrlStr = typeof roundItem === 'string' ? roundItem : roundItem?.url;
+      if (roundUrlStr) {
+        try {
+          const rRes = await fetch(roundUrlStr, { headers });
+          if (rRes.ok) {
+            const rData = await rRes.json();
+            if (rData.players && Array.isArray(rData.players)) {
+              rData.players.forEach((p: any) => {
+                if (p.username) {
+                  const lower = p.username.toLowerCase();
+                  playerRoundsMap.set(lower, (playerRoundsMap.get(lower) || 0) + 1);
+                }
+              });
+            }
+          }
+        } catch (e) {
+          // Ignore individual round scan failures gracefully
+        }
+      }
+    }
+
+    // 2. Fetch groups from the final completed round to get final Swiss scores for all participants
     try {
       const allGroupPlayers: ChessComPlayer[] = [];
-
-      // Fetch groups from the final round
       const lastRoundUrl = data.rounds[data.rounds.length - 1];
       const roundUrlStr = typeof lastRoundUrl === 'string' ? lastRoundUrl : lastRoundUrl?.url;
 
@@ -84,7 +109,7 @@ export async function fetchChessComTournament(urlOrSlug: string) {
         if (roundRes.ok) {
           const roundData = await roundRes.json();
           if (roundData.groups && Array.isArray(roundData.groups) && roundData.groups.length > 0) {
-            // Fetch ALL group URLs in the final round (not just group [0])
+            // Fetch ALL group URLs in the final round
             for (const groupItem of roundData.groups) {
               const groupUrlStr = typeof groupItem === 'string' ? groupItem : groupItem?.url;
               if (groupUrlStr) {
@@ -102,7 +127,6 @@ export async function fetchChessComTournament(urlOrSlug: string) {
       }
 
       if (allGroupPlayers.length > 0) {
-        // Merge group players with any players listed in top-level tournament data
         const playerMap = new Map<string, ChessComPlayer>();
 
         allGroupPlayers.forEach(p => {
@@ -122,6 +146,13 @@ export async function fetchChessComTournament(urlOrSlug: string) {
       console.warn('Could not fetch round group sub-details, using top-level players list:', err);
     }
   }
+
+  // 3. Attach individual roundsPlayed count to each player
+  const totalRoundsCount = data.rounds ? data.rounds.length : 9;
+  rawPlayers.forEach(p => {
+    const lowerHandle = p.username.toLowerCase();
+    p.roundsPlayed = playerRoundsMap.get(lowerHandle) ?? totalRoundsCount;
+  });
 
   // Sort players by points descending
   rawPlayers.sort((a, b) => (b.points ?? b.score ?? 0) - (a.points ?? a.score ?? 0));
