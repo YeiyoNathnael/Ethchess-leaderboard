@@ -3,7 +3,7 @@
     <div class="sync-header">
       <div>
         <h3 class="sync-title">CHESS.COM TOURNAMENT LINK SYNC ENGINE</h3>
-        <p class="sync-sub">Sync public daily tournaments or enter live club event standings to compute EthChess F1 points</p>
+        <p class="sync-sub">Sync public daily tournaments or enter live/club event standings to compute EthChess F1 points</p>
       </div>
       
       <!-- Mode Toggle -->
@@ -20,20 +20,24 @@
           :class="['mode-btn', { active: mode === 'manual' }]"
           @click="mode = 'manual'"
         >
-          LIVE CLUB EVENT INPUT
+          LIVE / OFFLINE INPUT
         </button>
       </div>
     </div>
 
     <!-- Mode 1: Public URL Sync -->
     <form v-if="mode === 'url'" @submit.prevent="syncTournament" class="sync-form">
+      <div class="info-banner" v-if="networkWarning">
+        <strong>NETWORK FIREWALL NOTICE:</strong> If your local network/ISP blocks <code>api.chess.com</code>, deploy to Vercel (cloud environment) or use the <strong>LIVE / OFFLINE INPUT</strong> tab.
+      </div>
+
       <div class="form-grid">
         <div class="form-group url-group">
           <label class="form-label">CHESS.COM TOURNAMENT LINK OR SLUG</label>
           <input 
             v-model="tournamentUrl" 
             type="text" 
-            placeholder="e.g. https://www.chess.com/tournament/ethchess-tuesday-season1-r1"
+            placeholder="e.g. ethchess-tuesday-6629639 or full URL"
             class="form-input"
             required
           />
@@ -52,7 +56,7 @@
           <input 
             v-model="customName" 
             type="text" 
-            placeholder="e.g. EthChess Tuesday #3"
+            placeholder="e.g. EthChess Tuesday #1"
             class="form-input"
           />
         </div>
@@ -65,19 +69,19 @@
       </div>
     </form>
 
-    <!-- Mode 2: Live Club Event Quick Standings Entry (for /play/tournament/ live events) -->
+    <!-- Mode 2: Live Club / Offline Quick Input -->
     <form v-else @submit.prevent="submitManualStandings" class="sync-form">
       <div class="info-banner">
-        <strong>NOTE:</strong> Live club tournaments hosted under <code>/play/tournament/</code> are restricted live play rooms and not exposed on Chess.com's public REST API. Use this quick input to post live event ranks.
+        <strong>BYPASS FIREWALL & LIVE LIMITS:</strong> Paste player handles in rank order below. This calculates F1 placement points and saves directly to Turso DB without needing an external network request to Chess.com.
       </div>
 
       <div class="form-grid">
         <div class="form-group url-group">
-          <label class="form-label">LIVE TOURNAMENT NAME / TITLE</label>
+          <label class="form-label">TOURNAMENT NAME / TITLE</label>
           <input 
             v-model="manualName" 
             type="text" 
-            placeholder="e.g. EthChess Live Tuesday #1 (6629639)"
+            placeholder="e.g. EthChess Tuesday #1 (6629639)"
             class="form-input"
             required
           />
@@ -92,7 +96,7 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label">SWISS ROUNDS COMPLETED</label>
+          <label class="form-label">TOTAL ROUNDS COMPLETED</label>
           <input 
             v-model.number="manualRounds" 
             type="number" 
@@ -105,11 +109,11 @@
       </div>
 
       <div class="form-group full-width">
-        <label class="form-label">PASTE FINISH ORDER (HANDLES IN RANK ORDER, ONE PER LINE OR COMMA SEPARATED)</label>
+        <label class="form-label">PASTE FINISH STANDINGS (HANDLES IN RANK ORDER, ONE PER LINE OR COMMA SEPARATED)</label>
         <textarea 
           v-model="manualHandlesText"
-          rows="5"
-          placeholder="e.g.&#10;GrandmasterAbebe&#10;TacticalBeth&#10;DawitKnight&#10;ElenaQueen"
+          rows="6"
+          placeholder="e.g.&#10;xdanielb&#10;mrhn11&#10;fula_710&#10;razak-basit&#10;yeabx&#10;pattydaty&#10;josh_147&#10;tebareka"
           class="form-textarea"
           required
         ></textarea>
@@ -117,7 +121,7 @@
 
       <div class="form-actions">
         <button type="submit" class="btn-primary" :disabled="isLoading">
-          {{ isLoading ? 'CALCULATING & SAVING...' : 'CALCULATE & SAVE LIVE EVENT' }}
+          {{ isLoading ? 'CALCULATING & SAVING...' : 'CALCULATE & SAVE STANDINGS' }}
         </button>
       </div>
     </form>
@@ -168,6 +172,7 @@ const customName = ref('');
 const manualName = ref('');
 const manualRounds = ref(9);
 const manualHandlesText = ref('');
+const networkWarning = ref(false);
 
 const isLoading = ref(false);
 const statusMessage = ref('');
@@ -179,6 +184,7 @@ const syncTournament = async () => {
 
   isLoading.value = true;
   statusMessage.value = '';
+  networkWarning.value = false;
   previewStandings.value = [];
 
   try {
@@ -196,8 +202,14 @@ const syncTournament = async () => {
     previewStandings.value = res.standingsPreview || [];
     emit('tournament-synced');
   } catch (err) {
-    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to sync tournament URL.';
-    statusMessage.value = detailedMsg;
+    const rawMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to sync tournament URL.';
+    
+    if (rawMsg.includes('fetch failed') || rawMsg.includes('ECONNRESET')) {
+      networkWarning.value = true;
+      statusMessage.value = 'Local network firewall blocked outbound connection to api.chess.com. Either deploy to Vercel (cloud environment) or use the LIVE / OFFLINE INPUT tab above.';
+    } else {
+      statusMessage.value = rawMsg;
+    }
     statusType.value = 'error';
   } finally {
     isLoading.value = false;
@@ -239,7 +251,7 @@ const submitManualStandings = async () => {
     previewStandings.value = res.standingsPreview || [];
     emit('tournament-synced');
   } catch (err) {
-    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to save live event.';
+    const detailedMsg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Failed to save standings.';
     statusMessage.value = detailedMsg;
     statusType.value = 'error';
   } finally {
