@@ -53,8 +53,8 @@ export function extractTournamentSlug(urlOrSlug: string): string {
 
 /**
  * Fetches real tournament data and standings from Chess.com Public API.
- * Iterates across ALL round groups to retrieve 100% of participants, and calculates
- * exact rounds played per individual player for accurate F1 participation scoring.
+ * Iterates across ALL round endpoints and round groups to retrieve 100% of participants,
+ * and calculates exact rounds played per individual player for accurate F1 participation scoring.
  */
 export async function fetchChessComTournament(urlOrSlug: string) {
   const slug = extractTournamentSlug(urlOrSlug);
@@ -69,17 +69,25 @@ export async function fetchChessComTournament(urlOrSlug: string) {
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(`Chess.com Public API returned HTTP 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE CLUB EVENT INPUT' tab to submit live club standings!`);
+      throw new Error(`Chess.com Public API returned HTTP 404 for "${slug}". Note: Live club tournaments (/play/tournament/) are private live play rooms. Use the 'LIVE / OFFLINE INPUT' tab to submit live club standings!`);
     }
     throw new Error(`Chess.com API returned HTTP ${response.status} for "${slug}".`);
   }
 
   const data: ChessComTournamentResponse = await response.json();
-  let rawPlayers: ChessComPlayer[] = data.players || [];
-
   const playerRoundsMap = new Map<string, number>();
+  const playerMap = new Map<string, ChessComPlayer>();
 
-  // 1. Safely scan round endpoints to count exact rounds played per player
+  // 1. Initial seed from top-level data.players
+  if (data.players && Array.isArray(data.players)) {
+    data.players.forEach(p => {
+      if (p.username) {
+        playerMap.set(p.username.toLowerCase(), { ...p });
+      }
+    });
+  }
+
+  // 2. Scan ALL round endpoints to discover 100% of participants across all rounds & count roundsPlayed
   if (data.rounds && Array.isArray(data.rounds) && data.rounds.length > 0) {
     for (const roundItem of data.rounds) {
       const roundUrlStr = typeof roundItem === 'string' ? roundItem : roundItem?.url;
@@ -93,19 +101,22 @@ export async function fetchChessComTournament(urlOrSlug: string) {
                 if (p.username) {
                   const lower = p.username.toLowerCase();
                   playerRoundsMap.set(lower, (playerRoundsMap.get(lower) || 0) + 1);
+
+                  if (!playerMap.has(lower)) {
+                    playerMap.set(lower, { username: p.username });
+                  }
                 }
               });
             }
           }
         } catch (e) {
-          // Ignore individual round scan failures gracefully
+          // Ignore individual round scan failures
         }
       }
     }
 
-    // 2. Safely fetch groups from the final completed round to get final Swiss scores for all participants
+    // 3. Fetch groups from the final completed round to get final Swiss scores for all participants
     try {
-      const allGroupPlayers: ChessComPlayer[] = [];
       const lastRoundUrl = data.rounds[data.rounds.length - 1];
       const roundUrlStr = typeof lastRoundUrl === 'string' ? lastRoundUrl : lastRoundUrl?.url;
 
@@ -114,7 +125,6 @@ export async function fetchChessComTournament(urlOrSlug: string) {
         if (roundRes.ok) {
           const roundData = await roundRes.json();
           if (roundData.groups && Array.isArray(roundData.groups) && roundData.groups.length > 0) {
-            // Fetch ALL group URLs in the final round
             for (const groupItem of roundData.groups) {
               const groupUrlStr = typeof groupItem === 'string' ? groupItem : groupItem?.url;
               if (groupUrlStr) {
@@ -123,7 +133,19 @@ export async function fetchChessComTournament(urlOrSlug: string) {
                   if (groupRes.ok) {
                     const groupData = await groupRes.json();
                     if (groupData.players && Array.isArray(groupData.players)) {
-                      allGroupPlayers.push(...groupData.players);
+                      groupData.players.forEach((p: ChessComPlayer) => {
+                        if (p.username) {
+                          const lower = p.username.toLowerCase();
+                          const existing = playerMap.get(lower);
+                          if (existing) {
+                            existing.username = p.username;
+                            existing.points = p.points ?? p.score ?? existing.points ?? 0;
+                            existing.status = p.status;
+                          } else {
+                            playerMap.set(lower, { ...p });
+                          }
+                        }
+                      });
                     }
                   }
                 } catch (e) {}
@@ -132,33 +154,19 @@ export async function fetchChessComTournament(urlOrSlug: string) {
           }
         }
       }
-
-      if (allGroupPlayers.length > 0) {
-        const playerMap = new Map<string, ChessComPlayer>();
-
-        allGroupPlayers.forEach(p => {
-          if (p.username) playerMap.set(p.username.toLowerCase(), p);
-        });
-
-        // Add any missing players from top-level array
-        rawPlayers.forEach(p => {
-          if (p.username && !playerMap.has(p.username.toLowerCase())) {
-            playerMap.set(p.username.toLowerCase(), p);
-          }
-        });
-
-        rawPlayers = Array.from(playerMap.values());
-      }
     } catch (err) {
-      console.warn('Could not fetch round group sub-details, using top-level players list:', err);
+      console.warn('Could not fetch round group sub-details:', err);
     }
   }
 
-  // 3. Attach individual roundsPlayed count to each player
+  // 4. Build final rawPlayers array with individual roundsPlayed counts
   const totalRoundsCount = data.rounds ? data.rounds.length : 9;
-  rawPlayers.forEach(p => {
+  const rawPlayers: ChessComPlayer[] = Array.from(playerMap.values()).map(p => {
     const lowerHandle = p.username.toLowerCase();
-    p.roundsPlayed = playerRoundsMap.get(lowerHandle) ?? totalRoundsCount;
+    return {
+      ...p,
+      roundsPlayed: playerRoundsMap.get(lowerHandle) ?? totalRoundsCount
+    };
   });
 
   // Sort players by points descending
